@@ -1,0 +1,22 @@
+---
+description: Indian GST Tax Calculation, UTGST, Tax Treatments, and Business Rules
+globs: src/engine/**/*, src/services/gst*
+---
+
+# GST & Business Logic Rules
+
+1. **Centralized Engine & Tax Decision Pipeline:**
+   - All tax math MUST occur in the central GST engine (`src/engine/gst/`).
+   - Decision Order: Transaction → Tax Applicability → Tax Treatment (`TAXABLE`, `NIL_RATED`, `EXEMPT`, `NON_GST`, `ZERO_RATED`) → Tax Rule → Tax Rate → Components → Calculation.
+
+2. **Tax Components (CGST, SGST, UTGST, IGST, CESS):**
+   - Intra-State (Same State): CGST (50%) + SGST (50%).
+   - Intra-UT (Union Territory): CGST (50%) + UTGST (50%).
+   - Inter-State / Inter-UT: IGST (100%).
+   - Cess: Calculated on taxable base if applicable.
+
+3. **No Hardcoded Rate Lists:**
+   - Tax rates are versioned, time-bounded master data (`TaxRateMaster`). Never use `[0, 5, 12, 18, 28]` array constants.
+
+4. **No Unconfirmed Invented Rules:**
+   - Do NOT invent unconfirmed legal edge cases. Mark as `TBD - Requires CA Confirmation`.

@@ -1,0 +1,15 @@
+---
+description: Security and Data Isolation Rules
+globs: **/*
+---
+
+# Security Rules
+
+1. **Strict IDOR Defense:**
+   - Always query using both entity `_id` and verified session `businessId`.
+
+2. **No Secret Leaks:**
+   - Secrets must remain in server-side process environments. `NEXT_PUBLIC_` variables MUST NOT contain secret keys or tokens.
+
+3. **Cloudinary Upload Safety:**
+   - Require signed parameters generated on the server for uploads.

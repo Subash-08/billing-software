@@ -1,0 +1,15 @@
+---
+description: Testing Strategy Rules for Vitest and Playwright
+globs: tests/**/*, **/*.test.ts, **/*.spec.ts
+---
+
+# Testing Rules
+
+1. **GST & Money Logic Unit Tests:**
+   - Every tax calculation edge case (intra, inter, exempt, inclusive/exclusive) MUST have Vitest unit test coverage.
+
+2. **Payment & Outstanding Verification:**
+   - Test partial payment and full payment balance computations.
+
+3. **Multi-Tenant Isolation Tests:**
+   - Integration tests must explicitly attempt cross-tenant access and assert 403 / 404 forbidden outcomes.

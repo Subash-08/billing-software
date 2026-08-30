@@ -1,0 +1,27 @@
+---
+description: System Architecture, 15 Coding Rules, and Domain Boundaries
+globs: **/*
+---
+
+# Architecture Rules & System Boundaries
+
+1. **Strict Layering:**
+   - UI Component → Domain Service / Server Action → GST Engine → Database Repository.
+   - UI components MUST NOT contain direct database queries or raw tax math.
+
+2. **The 15 Mandatory Coding Rules:**
+   - **Rule 1:** NEVER break business isolation (`businessId` enforced on server).
+   - **Rule 2:** Business logic does NOT belong in UI components.
+   - **Rule 3:** GST calculation is centralized in `src/engine/gst/`.
+   - **Rule 4:** Money calculations use exact decimal rounding or paisa integers.
+   - **Rule 5:** Issued invoices snapshot customer/item data immutably.
+   - **Rule 6:** Payment records are immutable transaction events.
+   - **Rule 7:** E-Invoice reuses the common invoice engine.
+   - **Rule 8:** Invoice templates are modular and configurable.
+   - **Rule 9:** Extensibility first (interface-driven services).
+   - **Rule 10:** UI/UX designed for non-technical Indian business users.
+   - **Rule 11:** Test financial logic with Vitest.
+   - **Rule 12:** Don't invent unconfirmed legal or GST rules (mark TBD).
+   - **Rule 13:** No dead UI elements or fake handlers.
+   - **Rule 14:** Update architecture documentation before major changes.
+   - **Rule 15:** TypeScript strict mode, Zod validation, no `any`.

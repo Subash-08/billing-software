@@ -1,0 +1,17 @@
+---
+description: TypeScript Typing Standards and Strict Constraints
+globs: **/*.ts, **/*.tsx
+---
+
+# TypeScript Rules
+
+1. **Strict Type Safety:**
+   - `noImplicitAny` and strict mode enabled.
+   - Do NOT use `any`. Use `unknown` with Zod validation or narrow type guards.
+
+2. **Domain Models & DTOs:**
+   - Define domain interfaces explicitly in `src/types/`.
+   - Zod schemas must back all client inputs and API payload types.
+
+3. **Financial Types:**
+   - Use explicit branded types or structured interfaces for monetary values to prevent accidental float operations.

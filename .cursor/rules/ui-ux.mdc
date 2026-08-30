@@ -1,0 +1,16 @@
+---
+description: UI/UX Aesthetic and Indian Accounting Conventions
+globs: **/*.tsx, app/**/*
+---
+
+# UI/UX Rules
+
+1. **Clear Accounting Language:**
+   - Use non-technical, domain-appropriate business labels ("Create Invoice", "Record Payment", "GST").
+   - Do NOT use vague developer terms ("Submit Payload", "Create Entity", "Tax Component").
+
+2. **Clean Information Hierarchy:**
+   - Prioritize high-contrast tables (TanStack Table), clear financial stat cards, and predictable forms.
+
+3. **No Clutter:**
+   - Avoid excessive unnecessary modals, complex popups, or noisy decorative elements.

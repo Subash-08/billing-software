@@ -1,0 +1,18 @@
+---
+description: React 19 and Next.js 16 App Router Rules
+globs: **/*.tsx, app/**/*, src/app/**/*
+---
+
+# React & Next.js Rules
+
+1. **Server Components First:**
+   - Default to Server Components for pages, layouts, and data fetching.
+   - Use `'use client'` only for interactive sub-trees (forms, stateful widgets, modals).
+
+2. **Form Management:**
+   - Use React Hook Form + Zod validation.
+   - Handle server errors gracefully with clear user feedback.
+
+3. **Data Fetching & Mutations:**
+   - Perform mutations via Server Actions or dedicated Route Handlers.
+   - Revalidate layout caches using `revalidatePath` or `revalidateTag` upon financial or customer mutations.

@@ -1,0 +1,15 @@
+---
+description: MongoDB Mongoose Database Modeling & Index Rules
+globs: **/*.model.ts, src/db/**/*, src/models/**/*
+---
+
+# Database & Mongoose Rules
+
+1. **Mandatory Tenant Field:**
+   - Every collection model (except global reference codes) MUST contain `businessId: { type: Schema.Types.ObjectId, ref: 'Business', required: true, index: true }`.
+
+2. **Compound Index Requirement:**
+   - Prefix compound indexes with `businessId` (e.g., `{ businessId: 1, invoiceNumber: 1 }`).
+
+3. **Immutability Protection:**
+   - Historical invoice item schema embedded snapshots MUST NOT cascade-update when master customer/product data is edited.
