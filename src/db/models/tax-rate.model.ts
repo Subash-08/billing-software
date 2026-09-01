@@ -1,6 +1,7 @@
 import mongoose, { Schema, Document, Model } from 'mongoose';
 
 export interface ITaxRateMaster extends Document {
+  name?: string;
   rate: number;
   cgstRate: number;
   sgstRate: number;

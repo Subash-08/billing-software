@@ -2,51 +2,73 @@ import mongoose, { Schema, Document, Model, Types } from 'mongoose';
 
 export interface IInvoiceItemSnapshot {
   itemId?: Types.ObjectId;
+  itemType: 'GOODS' | 'SERVICES';
   name: string;
-  hsnSacCode: string;
+  description?: string;
+  hsnCode?: string;
+  sacCode?: string;
   quantity: number;
   freeQuantity: number;
   unit: string;
   uqc: string;
-  rate: number;
-  discountAmount: number;
-  taxableAmount: number;
+  enteredRatePaise: number;
+  isPriceInclusiveOfGst: boolean;
+  discountType?: 'FIXED' | 'PERCENTAGE';
+  discountValueRaw?: number;
+  discountAmountPaise: number;
   taxTreatment: 'TAXABLE' | 'NIL_RATED' | 'EXEMPT' | 'NON_GST' | 'ZERO_RATED';
   gstRate: number;
-  cgstAmount: number;
-  sgstAmount: number;
-  utgstAmount: number;
-  igstAmount: number;
+  cgstRate: number;
+  sgstRate: number;
+  igstRate: number;
+  taxRateId: string;
+  taxRateVersion: string;
+  taxableAmountPaise: number;
+  cgstAmountPaise: number;
+  sgstAmountPaise: number;
+  utgstAmountPaise: number;
+  igstAmountPaise: number;
   cessRate: number;
-  cessAmount: number;
-  totalAmount: number;
+  cessAmountPaise: number;
+  totalAmountPaise: number;
 }
 
 export const InvoiceItemSchema = new Schema<IInvoiceItemSnapshot>(
   {
     itemId: Schema.Types.ObjectId,
+    itemType: { type: String, enum: ['GOODS', 'SERVICES'], required: true, default: 'GOODS' },
     name: { type: String, required: true },
-    hsnSacCode: { type: String, required: true },
+    description: String,
+    hsnCode: String,
+    sacCode: String,
     quantity: { type: Number, required: true, min: 0 },
     freeQuantity: { type: Number, default: 0, min: 0 },
     unit: { type: String, required: true },
     uqc: { type: String, required: true },
-    rate: { type: Number, required: true, min: 0 },
-    discountAmount: { type: Number, default: 0, min: 0 },
-    taxableAmount: { type: Number, required: true, min: 0 },
+    enteredRatePaise: { type: Number, required: true, min: 0 },
+    isPriceInclusiveOfGst: { type: Boolean, default: false },
+    discountType: { type: String, enum: ['FIXED', 'PERCENTAGE'] },
+    discountValueRaw: Number,
+    discountAmountPaise: { type: Number, default: 0, min: 0 },
     taxTreatment: {
       type: String,
       enum: ['TAXABLE', 'NIL_RATED', 'EXEMPT', 'NON_GST', 'ZERO_RATED'],
       default: 'TAXABLE',
     },
     gstRate: { type: Number, required: true, min: 0 },
-    cgstAmount: { type: Number, default: 0 },
-    sgstAmount: { type: Number, default: 0 },
-    utgstAmount: { type: Number, default: 0 },
-    igstAmount: { type: Number, default: 0 },
+    cgstRate: { type: Number, default: 0 },
+    sgstRate: { type: Number, default: 0 },
+    igstRate: { type: Number, default: 0 },
+    taxRateId: { type: String, default: '' },
+    taxRateVersion: { type: String, default: '1.0' },
+    taxableAmountPaise: { type: Number, required: true, min: 0 },
+    cgstAmountPaise: { type: Number, default: 0 },
+    sgstAmountPaise: { type: Number, default: 0 },
+    utgstAmountPaise: { type: Number, default: 0 },
+    igstAmountPaise: { type: Number, default: 0 },
     cessRate: { type: Number, default: 0 },
-    cessAmount: { type: Number, default: 0 },
-    totalAmount: { type: Number, required: true },
+    cessAmountPaise: { type: Number, default: 0 },
+    totalAmountPaise: { type: Number, required: true },
   },
   { _id: false }
 );
@@ -78,16 +100,20 @@ export const AddressSnapshotSchema = new Schema<IAddressSnapshot>(
   { _id: false }
 );
 
+export type EInvoiceStatus = 'NOT_REQUIRED' | 'PENDING' | 'GENERATED' | 'CANCELLED' | 'FAILED';
+
 export interface IInvoice extends Document {
   businessId: Types.ObjectId;
   customerId: Types.ObjectId;
   invoiceNumber: string;
   financialYear: string;
-  documentType: 'TAX_INVOICE' | 'BILL_OF_SUPPLY' | 'CREDIT_NOTE' | 'DEBIT_NOTE' | 'QUOTATION' | 'DELIVERY_CHALLAN';
+  documentType: 'TAX_INVOICE' | 'BILL_OF_SUPPLY' | 'CREDIT_NOTE' | 'DEBIT_NOTE' | 'QUOTATION' | 'PROFORMA' | 'SALES_ORDER' | 'DELIVERY_CHALLAN';
   supplyType: 'B2B' | 'B2C' | 'SEZ_WITH_PAYMENT' | 'SEZ_WITHOUT_PAYMENT' | 'EXPORT_WITH_PAYMENT' | 'EXPORT_WITHOUT_PAYMENT' | 'DEEMED_EXPORT';
   taxTreatment: 'TAXABLE' | 'NIL_RATED' | 'EXEMPT' | 'NON_GST' | 'ZERO_RATED';
-  status: 'DRAFT' | 'VALIDATING' | 'READY_TO_ISSUE' | 'ISSUED' | 'CANCELLED';
+  // Three independent lifecycle axes — no coupling between them
+  status: 'DRAFT' | 'VALIDATING' | 'ISSUED' | 'CANCELLED';
   paymentStatus: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID';
+  einvoiceStatus: EInvoiceStatus;
   invoiceDate: Date;
   dueDate: Date;
   currency: string;
@@ -106,6 +132,7 @@ export interface IInvoice extends Document {
     vehicleNumber?: string;
   };
   items: IInvoiceItemSnapshot[];
+  // Document-level financial snapshot (all in integer paise)
   subTotal: number;
   totalDiscount: number;
   totalTaxable: number;
@@ -117,8 +144,54 @@ export interface IInvoice extends Document {
   roundOff: number;
   grandTotal: number;
   paidAmount: number;
+  returnedAmount?: number;
   outstandingBalance: number;
+  // Calculation + Compliance trace (policy versions, warnings, decisions)
   calculationTrace?: Record<string, unknown>;
+  // Optimistic concurrency — incremented atomically on every draft update
+  revision: number;
+  // Issuance idempotency — sparse unique index prevents duplicate issuance
+  issuanceIdempotencyKey?: string;
+  shareToken?: string;
+  shareTokenExpiresAt?: Date;
+  notes?: string;
+  termsAndConditions?: string;
+  createdById: Types.ObjectId;
+  /** Immutable template snapshot taken at invoice issuance. Used for historical PDF reproduction. */
+  templateSnapshot?: {
+    templateId?: string;
+    templateVersion?: number;
+    templateMode: string;
+    paperSize: string;
+    orientation: string;
+    pageMargins: { topMm: number; bottomMm: number; leftMm: number; rightMm: number };
+    letterheadConfig?: {
+      reservedHeaderHeightMm: number;
+      reservedFooterHeightMm: number;
+      calibrationTopOffsetMm: number;
+      calibrationLeftOffsetMm: number;
+      backgroundMediaUrl?: string;
+    };
+    logoConfig?: { enabled: boolean; alignment: string; widthMm: number; maxHeightMm: number };
+    companyHeaderConfig?: Record<string, unknown>;
+    signatoryConfig?: Record<string, unknown>;
+    headerConfig?: Record<string, unknown>;
+    itemColumns?: Array<{ key: string; label: string; visible: boolean; align: string }>;
+    fieldVisibility?: Record<string, string>;
+    sectionOrder?: string[];
+    styling?: Record<string, unknown>;
+    termsText?: string;
+    declarationText?: string;
+    logoUrl?: string;
+    signatureUrl?: string;
+    snapshotAt: string;
+  };
+  // Audit signatures
+  issuedAt?: Date;
+  issuedBy?: Types.ObjectId;
+  cancelledAt?: Date;
+  cancelledBy?: Types.ObjectId;
+  cancellationReason?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -131,7 +204,7 @@ const InvoiceSchema = new Schema<IInvoice>(
     financialYear: { type: String, required: true },
     documentType: {
       type: String,
-      enum: ['TAX_INVOICE', 'BILL_OF_SUPPLY', 'CREDIT_NOTE', 'DEBIT_NOTE', 'QUOTATION', 'DELIVERY_CHALLAN'],
+      enum: ['TAX_INVOICE', 'BILL_OF_SUPPLY', 'CREDIT_NOTE', 'DEBIT_NOTE', 'QUOTATION', 'PROFORMA', 'SALES_ORDER', 'DELIVERY_CHALLAN'],
       default: 'TAX_INVOICE',
       required: true,
     },
@@ -149,7 +222,7 @@ const InvoiceSchema = new Schema<IInvoice>(
     },
     status: {
       type: String,
-      enum: ['DRAFT', 'VALIDATING', 'READY_TO_ISSUE', 'ISSUED', 'CANCELLED'],
+      enum: ['DRAFT', 'VALIDATING', 'ISSUED', 'CANCELLED'],
       default: 'DRAFT',
       required: true,
     },
@@ -158,6 +231,11 @@ const InvoiceSchema = new Schema<IInvoice>(
       enum: ['UNPAID', 'PARTIALLY_PAID', 'PAID'],
       default: 'UNPAID',
       required: true,
+    },
+    einvoiceStatus: {
+      type: String,
+      enum: ['NOT_REQUIRED', 'PENDING', 'GENERATED', 'CANCELLED', 'FAILED'],
+      default: 'NOT_REQUIRED',
     },
     invoiceDate: { type: Date, required: true },
     dueDate: { type: Date, required: true },
@@ -188,8 +266,27 @@ const InvoiceSchema = new Schema<IInvoice>(
     roundOff: { type: Number, default: 0 },
     grandTotal: { type: Number, required: true },
     paidAmount: { type: Number, default: 0 },
+    returnedAmount: { type: Number, default: 0 },
     outstandingBalance: { type: Number, required: true },
     calculationTrace: Object,
+    // Optimistic concurrency
+    revision: { type: Number, default: 1, required: true },
+    issuanceIdempotencyKey: { type: String, sparse: true },
+    shareToken: String,
+    shareTokenExpiresAt: Date,
+    notes: String,
+    termsAndConditions: String,
+    createdById: { type: Schema.Types.ObjectId, ref: 'User' },
+    templateSnapshot: {
+      type: Schema.Types.Mixed,
+      default: undefined,
+    },
+    // Audit signatures
+    issuedAt: Date,
+    issuedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    cancelledAt: Date,
+    cancelledBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    cancellationReason: String,
   },
   { timestamps: true }
 );
@@ -198,6 +295,8 @@ InvoiceSchema.index({ businessId: 1, invoiceNumber: 1 }, { unique: true });
 InvoiceSchema.index({ businessId: 1, status: 1, invoiceDate: -1 });
 InvoiceSchema.index({ businessId: 1, customerId: 1, paymentStatus: 1 });
 InvoiceSchema.index({ businessId: 1, invoiceDate: -1 });
+// Idempotency key: sparse so null values are not indexed
+InvoiceSchema.index({ businessId: 1, issuanceIdempotencyKey: 1 }, { unique: true, sparse: true });
 
 export const InvoiceModel: Model<IInvoice> =
   mongoose.models.Invoice || mongoose.model<IInvoice>('Invoice', InvoiceSchema);

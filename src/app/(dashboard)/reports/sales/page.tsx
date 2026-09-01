@@ -67,8 +67,16 @@ interface ICreditNoteReportItem {
   totalCgst?: number;
   totalSgst?: number;
   totalIgst?: number;
+  subtotalPaise?: number;
+  totalTaxablePaise?: number;
   totals?: { grandTotalPaise: number; totalTaxablePaise: number; totalTaxPaise: number };
   items?: Array<{ rate: number; quantity: number; gstRate: number }>;
+}
+
+interface RefundReportItem {
+  _id: string;
+  amountPaise: number;
+  status: string;
 }
 
 function toRupees(val: number | undefined | null): number {
@@ -85,6 +93,7 @@ export default function SalesRegisterReportPage() {
   const [invoices, setInvoices] = useState<SalesInvoiceItem[]>([]);
   const [payments, setPayments] = useState<PaymentReceiptItem[]>([]);
   const [creditNotes, setCreditNotes] = useState<ICreditNoteReportItem[]>([]);
+  const [refunds, setRefunds] = useState<RefundReportItem[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -111,19 +120,22 @@ export default function SalesRegisterReportPage() {
       if (statusFilter) params.set('status', statusFilter);
       if (paymentStatusFilter) params.set('paymentStatus', paymentStatusFilter);
 
-      const [invRes, payRes, cnRes] = await Promise.all([
+      const [invRes, payRes, cnRes, refRes] = await Promise.all([
         fetch(`/api/invoices?${params.toString()}`),
         fetch('/api/payments'),
         fetch('/api/credit-notes'),
+        fetch('/api/refunds'),
       ]);
 
       const invJson = await invRes.json();
       const payJson = await payRes.json();
       const cnJson = await cnRes.json();
+      const refJson = await refRes.json();
 
       if (invJson.success) setInvoices(invJson.items || []);
       if (payJson.success) setPayments(payJson.items || []);
       if (cnJson.success) setCreditNotes(cnJson.creditNotes || []);
+      if (refJson.success) setRefunds(refJson.refunds || []);
     } catch (err) {
       console.error('Failed to load report data', err);
     } finally {
@@ -190,11 +202,24 @@ export default function SalesRegisterReportPage() {
     return sum + toRupees(taxPaise);
   }, 0);
 
+  const totalCreditNotesTaxableRupees = creditNotes.reduce((sum, cn) => {
+    let taxablePaise = cn.totals?.totalTaxablePaise || cn.subtotalPaise || 0;
+    if (taxablePaise === 0 && (cn.totalTaxable || cn.subTotal)) {
+      return sum + toRupees(cn.totalTaxable || cn.subTotal);
+    }
+    if (taxablePaise === 0 && cn.items) {
+      taxablePaise = cn.items.reduce((s, it) => s + (it.rate || 0) * (it.quantity || 1), 0);
+    }
+    return sum + toRupees(taxablePaise);
+  }, 0);
+
   const netTaxRupees = Math.max(0, grossTaxRupees - totalCreditNotesTaxRupees);
   const totalGrandRupees = invoices.reduce((sum, inv) => sum + toRupees(inv.grandTotal), 0);
   const totalReturnedRupees = invoices.reduce((sum, inv) => sum + toRupees(inv.returnedAmount), 0);
   const totalNetBilledRupees = totalGrandRupees - totalReturnedRupees;
   const totalCollectedRupees = invoices.reduce((sum, inv) => sum + toRupees(inv.paidAmount), 0);
+  const totalRefundsPaidRupees = refunds.reduce((sum, r) => sum + toRupees(r.amountPaise), 0);
+  const netCashRetainedRupees = Math.max(0, totalCollectedRupees - totalRefundsPaidRupees);
   const totalDirectReceiptsRupees = payments.reduce((sum, p) => sum + toRupees(p.amountPaise), 0);
 
   return (
@@ -275,66 +300,214 @@ export default function SalesRegisterReportPage() {
 
       {/* Top Metric Cards */}
       {reportView === 'INVOICES' ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
-          <Card className="border border-slate-200 bg-white p-3.5 rounded-xl shadow-2xs">
-            <div className="flex items-center justify-between text-slate-500">
-              <span className="text-[11px] font-semibold">Gross Taxable Sales</span>
-              <FileSpreadsheet className="h-4 w-4 text-blue-600" />
+        <div className="space-y-3.5">
+          {/* Row 1: Gross Invoicing & Tax Output (Before Credit Notes) */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+            <Card className="border border-slate-200 bg-white p-3.5 rounded-xl shadow-2xs">
+              <div className="flex items-center justify-between text-slate-500">
+                <span className="text-[11px] font-semibold">Total Invoice Value (Gross)</span>
+                <FileSpreadsheet className="h-4 w-4 text-blue-600" />
+              </div>
+              <p className="text-base font-bold text-slate-900 mt-1.5">
+                ₹{totalGrandRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </p>
+              <span className="text-[10px] text-slate-500 font-medium mt-0.5 block">
+                Taxable ₹{totalTaxableRupees.toLocaleString('en-IN')} + GST ₹{grossTaxRupees.toLocaleString('en-IN')}
+              </span>
+            </Card>
+
+            <Card className="border border-slate-200 bg-white p-3.5 rounded-xl shadow-2xs">
+              <div className="flex items-center justify-between text-slate-500">
+                <span className="text-[11px] font-semibold">GST Charged</span>
+                <Landmark className="h-4 w-4 text-indigo-600" />
+              </div>
+              <p className="text-base font-bold text-indigo-700 mt-1.5">
+                ₹{grossTaxRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </p>
+              <span className="text-[10px] text-indigo-600 font-medium mt-0.5 block">
+                CGST + SGST + IGST charged on original invoices
+              </span>
+            </Card>
+
+            <Card className="border border-slate-200 bg-white p-3.5 rounded-xl shadow-2xs">
+              <div className="flex items-center justify-between text-slate-500">
+                <span className="text-[11px] font-semibold">Returns & Credit Notes</span>
+                <RotateCcw className="h-4 w-4 text-red-600" />
+              </div>
+              <p className="text-base font-bold text-red-700 mt-1.5">
+                ₹{totalReturnedRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </p>
+              <span className="text-[10px] text-red-600 font-medium mt-0.5 block">
+                Taxable ₹{totalCreditNotesTaxableRupees.toLocaleString('en-IN')} + GST ₹{totalCreditNotesTaxRupees.toLocaleString('en-IN')}
+              </span>
+            </Card>
+          </div>
+
+          {/* Row 2: Net Position & GST Output (After Credit Notes) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+            <Card className="border border-slate-200 bg-white p-3.5 rounded-xl shadow-2xs">
+              <div className="flex items-center justify-between text-slate-500">
+                <span className="text-[11px] font-semibold">Sales After Returns</span>
+                <TrendingUp className="h-4 w-4 text-emerald-600" />
+              </div>
+              <p className="text-base font-bold text-emerald-700 mt-1.5">
+                ₹{totalNetBilledRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </p>
+              <span className="text-[10px] text-emerald-600 font-medium mt-0.5 block">
+                Taxable ₹{(totalTaxableRupees - totalCreditNotesTaxableRupees).toLocaleString('en-IN')} + GST ₹{netTaxRupees.toLocaleString('en-IN')}
+              </span>
+            </Card>
+
+            <Card className="border border-slate-200 bg-white p-3.5 rounded-xl shadow-2xs">
+              <div className="flex items-center justify-between text-slate-500">
+                <span className="text-[11px] font-semibold">GST Output After Returns</span>
+                <Landmark className="h-4 w-4 text-blue-600" />
+              </div>
+              <p className="text-base font-bold text-blue-700 mt-1.5">
+                ₹{netTaxRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </p>
+              <span className="text-[10px] text-blue-600 font-medium mt-0.5 block">
+                Gross GST ₹{grossTaxRupees.toLocaleString('en-IN')} − Credit GST ₹{totalCreditNotesTaxRupees.toLocaleString('en-IN')}
+              </span>
+            </Card>
+
+            <Card className="border border-slate-200 bg-white p-3.5 rounded-xl shadow-2xs">
+              <div className="flex items-center justify-between text-slate-500">
+                <span className="text-[11px] font-semibold">Cash Collected</span>
+                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              </div>
+              <p className="text-base font-bold text-emerald-700 mt-1.5">
+                ₹{totalCollectedRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </p>
+              <span className="text-[10px] text-emerald-600 font-medium mt-0.5 block">
+                {totalRefundsPaidRupees > 0
+                  ? `Refunded ₹${totalRefundsPaidRupees.toLocaleString('en-IN')} · Cash After Refunds ₹${netCashRetainedRupees.toLocaleString('en-IN')}`
+                  : 'Total payments received'}
+              </span>
+            </Card>
+
+            <Card className="border border-slate-200 bg-white p-3.5 rounded-xl shadow-2xs">
+              <div className="flex items-center justify-between text-slate-500">
+                <span className="text-[11px] font-semibold">Amount Still Due</span>
+                <Clock className="h-4 w-4 text-slate-500" />
+              </div>
+              <p className="text-base font-bold text-slate-900 mt-1.5">
+                ₹{(invoices.reduce((s, i) => s + toRupees(i.outstandingBalance), 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </p>
+              <span className="text-[10px] text-slate-500 font-medium mt-0.5 block">
+                Customers still owe you
+              </span>
+            </Card>
+          </div>
+
+          {/* Sales & Tax Audit Reconciliation Breakdown Table */}
+          <Card className="border border-slate-200 bg-white rounded-xl overflow-hidden shadow-2xs">
+            <div className="bg-slate-900 text-white px-4 py-2.5 flex items-center justify-between">
+              <span className="font-bold text-[11px] uppercase tracking-wider flex items-center gap-2">
+                <Calculator className="h-4 w-4 text-blue-400" />
+                Sales & Tax Mathematical Reconciliation Audit
+              </span>
+              <span className="text-[10px] text-slate-300 font-medium">Stage-by-Stage Tax & Invoice Totals</span>
             </div>
-            <p className="text-base font-bold text-slate-900 mt-1.5">
-              ₹{totalTaxableRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </p>
-            <span className="text-[10px] text-slate-400 mt-0.5 block">Pre-tax gross revenue</span>
+            <div className="p-0 overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="bg-slate-100 text-slate-700 uppercase font-bold text-[10px] border-b border-slate-200">
+                  <tr>
+                    <th className="px-5 py-2.5">Accounting Stage</th>
+                    <th className="px-5 py-2.5 text-right">Taxable Amount (Pre-Tax)</th>
+                    <th className="px-5 py-2.5 text-right">GST Amount</th>
+                    <th className="px-5 py-2.5 text-right">Total (Incl. GST)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium">
+                  <tr className="hover:bg-slate-50">
+                    <td className="px-5 py-3 font-semibold text-slate-800">Original Invoices Billed</td>
+                    <td className="px-5 py-3 text-right font-mono text-slate-900">
+                      ₹{totalTaxableRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="px-5 py-3 text-right font-mono text-indigo-700">
+                      ₹{grossTaxRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="px-5 py-3 text-right font-mono font-bold text-slate-900">
+                      ₹{totalGrandRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+
+                  <tr className="hover:bg-slate-50 text-red-700">
+                    <td className="px-5 py-3 font-semibold">Less: Sales Returns & Credit Notes</td>
+                    <td className="px-5 py-3 text-right font-mono">
+                      -₹{totalCreditNotesTaxableRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="px-5 py-3 text-right font-mono">
+                      -₹{totalCreditNotesTaxRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="px-5 py-3 text-right font-mono font-bold">
+                      -₹{totalReturnedRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+
+                  <tr className="bg-emerald-50/60 font-extrabold text-emerald-950 border-t-2 border-emerald-200">
+                    <td className="px-5 py-3 font-bold text-emerald-900">Sales After Returns (Net Billed Position)</td>
+                    <td className="px-5 py-3 text-right font-mono text-emerald-900">
+                      ₹{(totalTaxableRupees - totalCreditNotesTaxableRupees).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="px-5 py-3 text-right font-mono text-emerald-900">
+                      ₹{netTaxRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="px-5 py-3 text-right font-mono text-emerald-950 text-sm">
+                      ₹{totalNetBilledRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </Card>
 
-          <Card className="border border-slate-200 bg-white p-3.5 rounded-xl shadow-2xs">
-            <div className="flex items-center justify-between text-slate-500">
-              <span className="text-[11px] font-semibold">Net Tax (GST Owed)</span>
-              <Landmark className="h-4 w-4 text-indigo-600" />
+          {/* Collection & Cash Flow Reconciliation Table */}
+          <Card className="border border-slate-200 bg-white rounded-xl overflow-hidden shadow-2xs">
+            <div className="bg-slate-800 text-white px-4 py-2 flex items-center justify-between">
+              <span className="font-bold text-[11px] uppercase tracking-wider flex items-center gap-2">
+                <DollarSign className="h-4 w-4 text-emerald-400" />
+                Collection & Cash Flow Reconciliation Audit
+              </span>
+              <span className="text-[10px] text-slate-300 font-medium">Money Movements & Customer Balances</span>
             </div>
-            <p className="text-base font-bold text-indigo-700 mt-1.5">
-              ₹{netTaxRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </p>
-            <span className="text-[10px] text-indigo-600 font-medium mt-0.5 block">
-              {totalCreditNotesTaxRupees > 0
-                ? `Gross ₹${grossTaxRupees.toLocaleString('en-IN')} - Tax Cr ₹${totalCreditNotesTaxRupees.toLocaleString('en-IN')}`
-                : 'CGST + SGST + IGST liability'}
-            </span>
-          </Card>
-
-          <Card className="border border-slate-200 bg-white p-3.5 rounded-xl shadow-2xs">
-            <div className="flex items-center justify-between text-slate-500">
-              <span className="text-[11px] font-semibold">Credit Notes / Returns</span>
-              <RotateCcw className="h-4 w-4 text-red-600" />
+            <div className="p-0 overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="bg-slate-100 text-slate-700 uppercase font-bold text-[10px] border-b border-slate-200">
+                  <tr>
+                    <th className="px-5 py-2">Cash Flow Metric</th>
+                    <th className="px-5 py-2 text-right">Amount (₹)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium">
+                  <tr className="hover:bg-slate-50">
+                    <td className="px-5 py-2.5 font-semibold text-slate-800">Payments Received from Customers</td>
+                    <td className="px-5 py-2.5 text-right font-mono text-emerald-700 font-bold">
+                      ₹{totalCollectedRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                  <tr className="hover:bg-slate-50 text-red-700">
+                    <td className="px-5 py-2.5 font-semibold">Less: Cash Refunds Paid Out to Customers</td>
+                    <td className="px-5 py-2.5 text-right font-mono font-bold">
+                      -₹{totalRefundsPaidRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                  <tr className="bg-blue-50/70 font-extrabold text-blue-950 border-t border-blue-200">
+                    <td className="px-5 py-2.5 font-bold text-blue-900">Net Cash Received by Business</td>
+                    <td className="px-5 py-2.5 text-right font-mono text-blue-900 text-sm font-bold">
+                      ₹{netCashRetainedRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                  <tr className="hover:bg-slate-50 text-slate-600">
+                    <td className="px-5 py-2.5 font-medium">Credit Notes Applied to Unpaid Invoices</td>
+                    <td className="px-5 py-2.5 text-right font-mono font-semibold text-slate-700">
+                      ₹{(totalReturnedRupees - totalRefundsPaidRupees).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
-            <p className="text-base font-bold text-red-700 mt-1.5">
-              ₹{totalReturnedRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </p>
-            <span className="text-[10px] text-red-600 font-medium mt-0.5 block">Sales returns deduction</span>
-          </Card>
-
-          <Card className="border border-slate-200 bg-white p-3.5 rounded-xl shadow-2xs">
-            <div className="flex items-center justify-between text-slate-500">
-              <span className="text-[11px] font-semibold">Net Billed Revenue</span>
-              <TrendingUp className="h-4 w-4 text-emerald-600" />
-            </div>
-            <p className="text-base font-bold text-emerald-700 mt-1.5">
-              ₹{totalNetBilledRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </p>
-            <span className="text-[10px] text-emerald-600 font-medium mt-0.5 block">
-              Formula: Gross (₹{totalGrandRupees.toLocaleString('en-IN')}) - Returns (₹{totalReturnedRupees.toLocaleString('en-IN')})
-            </span>
-          </Card>
-
-          <Card className="border border-slate-200 bg-white p-3.5 rounded-xl shadow-2xs">
-            <div className="flex items-center justify-between text-slate-500">
-              <span className="text-[11px] font-semibold">Amount Collected</span>
-              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-            </div>
-            <p className="text-base font-bold text-emerald-700 mt-1.5">
-              ₹{totalCollectedRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </p>
-            <span className="text-[10px] text-emerald-600 font-medium mt-0.5 block">Total payments received</span>
           </Card>
         </div>
       ) : (
@@ -463,7 +636,19 @@ export default function SalesRegisterReportPage() {
                           ₹{paidAmountRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                         </td>
                         <td className="px-4 py-4 text-center">
-                          {inv.paymentStatus === 'PAID' && <Badge variant="success">Paid</Badge>}
+                          {inv.paymentStatus === 'PAID' && (
+                            returnedRupees > 0 ? (
+                              <Badge
+                                variant="success"
+                                className="bg-emerald-50 text-emerald-900 border-emerald-300 font-bold"
+                                title="Invoice balance was cleared partly or fully using a credit note."
+                              >
+                                Settled by Credit Note
+                              </Badge>
+                            ) : (
+                              <Badge variant="success">Paid</Badge>
+                            )
+                          )}
                           {inv.paymentStatus === 'PARTIALLY_PAID' && (
                             <Badge variant="warning">Partially Paid</Badge>
                           )}

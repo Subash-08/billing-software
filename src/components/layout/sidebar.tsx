@@ -24,10 +24,13 @@ import {
   Binary,
   History,
   QrCode,
-  Truck,
-  RotateCcw,
   Sparkles,
   Clock,
+  ShoppingCart,
+  Building2,
+  ClipboardList,
+  Truck as TruckIcon,
+  Image as ImageIcon,
 } from 'lucide-react';
 
 interface NavItem {
@@ -50,18 +53,17 @@ const navSections: NavSection[] = [
     heading: 'SALES',
     items: [
       { title: 'Invoices', href: '/invoices', icon: FileText },
-      { title: 'Outstanding Aging', href: '/outstanding', icon: Clock },
       { title: 'Credit Notes', href: '/credit-notes', icon: FileDiff },
       { title: 'Debit Notes', href: '/debit-notes', icon: FilePlus },
       { title: 'Payments / Receipts', href: '/payments', icon: CreditCard },
-      { title: 'Refunds', href: '/refunds', icon: RotateCcw },
+      { title: 'Outstanding Aging', href: '/outstanding', icon: Clock },
     ],
   },
   {
     heading: 'MASTERS',
     items: [
       { title: 'Customers', href: '/customers', icon: Users },
-      { title: 'Products', href: '/products', icon: Package },
+      { title: 'Products (Goods)', href: '/products', icon: Package },
       { title: 'Services', href: '/services', icon: Wrench },
       { title: 'Categories', href: '/categories', icon: Sparkles },
     ],
@@ -69,10 +71,11 @@ const navSections: NavSection[] = [
   {
     heading: 'REPORTS',
     items: [
-      { title: 'Sales Summary', href: '/reports/sales', icon: BarChart3 },
-      { title: 'GSTR-1 Report', href: '/reports/gst', icon: Landmark },
-      { title: 'GSTR-3B Report', href: '/reports/hsn-sac', icon: FileSpreadsheet },
+      { title: 'Sales Report', href: '/reports/sales', icon: BarChart3 },
+      { title: 'GST Summary', href: '/reports/gst', icon: Landmark },
+      { title: 'HSN/SAC Summary', href: '/reports/hsn-sac', icon: FileSpreadsheet },
       { title: 'Customer Statements', href: '/statements', icon: Users },
+      { title: 'All Reports', href: '/reports', icon: BarChart3 },
     ],
   },
   {
@@ -92,11 +95,13 @@ const navSections: NavSection[] = [
     heading: 'SETTINGS',
     items: [
       { title: 'Business Profile', href: '/settings/business', icon: Sliders },
+      { title: 'Branding & Logos', href: '/settings/branding', icon: ImageIcon },
+      { title: 'Document Templates', href: '/settings/templates', icon: LayoutTemplate },
       { title: 'GST & Tax Settings', href: '/settings/gst', icon: ShieldCheck },
       { title: 'Invoice & Numbering', href: '/settings/numbering', icon: Binary },
       { title: 'Bank & UPI', href: '/settings/bank-details', icon: Landmark },
       { title: 'E-Invoice Settings', href: '/settings/e-invoice', icon: QrCode },
-      { title: 'E-Way Bill Settings', href: '/settings/e-way-bill', icon: Truck },
+      { title: 'V2 Roadmap & Status', href: '/settings/v2-status', icon: Clock },
       { title: 'Audit Log', href: '/settings/audit-logs', icon: History },
     ],
   },
@@ -106,7 +111,7 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-64 shrink-0 border-r border-slate-800/80 bg-[#0B0F19] text-slate-300 h-screen sticky top-0 flex flex-col justify-between overflow-y-auto scrollbar-thin z-20">
+    <aside className="w-64 shrink-0 border-r border-slate-800/80 bg-[#0B0F19] text-slate-300 h-screen sticky top-0 flex flex-col justify-between overflow-y-auto scrollbar-thin z-20 print:hidden">
       <div className="p-4">
         {/* Brand Header */}
         <div className="flex items-center gap-3 px-2 py-3 border-b border-slate-800/80 mb-5">

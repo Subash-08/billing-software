@@ -4,7 +4,8 @@ export interface IHsnSacMaster extends Document {
   code: string;
   type: 'HSN' | 'SAC';
   description: string;
-  defaultGstRate: number;
+  chapter?: string;
+  heading?: string;
   status: 'ACTIVE' | 'INACTIVE';
   effectiveFrom: Date;
   effectiveTo?: Date;
@@ -12,10 +13,11 @@ export interface IHsnSacMaster extends Document {
 
 const HsnSacMasterSchema = new Schema<IHsnSacMaster>(
   {
-    code: { type: String, required: true, unique: true, index: true },
+    code: { type: String, required: true, index: true },
     type: { type: String, enum: ['HSN', 'SAC'], required: true },
     description: { type: String, required: true },
-    defaultGstRate: { type: Number, required: true, default: 18 },
+    chapter: String,
+    heading: String,
     status: { type: String, enum: ['ACTIVE', 'INACTIVE'], default: 'ACTIVE' },
     effectiveFrom: { type: Date, required: true, default: Date.now },
     effectiveTo: Date,
@@ -23,5 +25,9 @@ const HsnSacMasterSchema = new Schema<IHsnSacMaster>(
   { timestamps: true }
 );
 
+HsnSacMasterSchema.index({ code: 1, type: 1 });
+HsnSacMasterSchema.index({ description: 'text', code: 'text' });
+
 export const HsnSacModel: Model<IHsnSacMaster> =
   mongoose.models.HSNSAC || mongoose.model<IHsnSacMaster>('HSNSAC', HsnSacMasterSchema);
+

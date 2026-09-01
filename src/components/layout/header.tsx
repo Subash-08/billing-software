@@ -60,7 +60,7 @@ export function Header() {
 
   return (
     <>
-      <header className="sticky top-0 z-30 flex h-14 w-full items-center justify-between border-b border-slate-200 bg-white/90 backdrop-blur-md px-6 shadow-xs">
+      <header className="sticky top-0 z-30 flex h-14 w-full items-center justify-between border-b border-slate-200 bg-white/90 backdrop-blur-md px-6 shadow-xs print:hidden">
         {/* Search Bar Trigger */}
         <div className="flex items-center gap-3 w-80">
           <div className="relative w-full cursor-pointer" onClick={() => setSearchOpen(true)}>

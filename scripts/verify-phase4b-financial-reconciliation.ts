@@ -119,7 +119,7 @@ export async function runPhase4bFinancialReconciliation() {
       items: [
         {
           name: `Concurrency Item #${i + 1}`,
-          hsnSacCode: '8481',
+          hsnCode: '84818090',
           quantity: 1,
           unit: 'PCS',
           uqc: 'PCS',

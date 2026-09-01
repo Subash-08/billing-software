@@ -458,4 +458,92 @@ describe('Phase 11 — Invoice Calculation & Aggregation Engine Test Suite', () 
       }
     });
   });
+
+  describe('6. Tax-Inclusive Pricing (Invariant 2 — Residual Method)', () => {
+    it('Inclusive Pricing Intra-State: ₹5,900 entered @ 18% GST -> Taxable ₹5,000 + GST ₹900 (CGST ₹450 + SGST ₹450)', () => {
+      const res = calculateInvoice({
+        supplierStateCode: '33',
+        placeOfSupplyStateCode: '33',
+        items: [
+          {
+            name: 'Inclusive Product',
+            classificationCode: { type: 'HSN' as const, code: '847130' },
+            quantity: 1,
+            unit: 'PCS',
+            uqc: 'PCS',
+            ratePaise: 590000, // ₹5,900.00 (entered price incl. GST)
+            isPriceInclusiveOfGst: true,
+            resolvedTaxRate: dummyResolved18,
+          },
+        ],
+      });
+
+      const item = res.items[0];
+      expect(item.isPriceInclusiveOfGst).toBe(true);
+      expect(item.enteredRatePaise).toBe(590000);
+      expect(item.taxablePaise).toBe(500000); // ₹5,000.00
+      expect(item.resolvedCgstPaise).toBe(45000); // ₹450.00
+      expect(item.resolvedSgstPaise).toBe(45000); // ₹450.00
+      expect(item.totalAmountPaise).toBe(590000); // Customer pays exactly ₹5,900.00
+    });
+
+    it('Inclusive Pricing Inter-State: ₹5,900 entered @ 18% GST -> Taxable ₹5,000 + IGST ₹900', () => {
+      const res = calculateInvoice({
+        supplierStateCode: '33',
+        placeOfSupplyStateCode: '29',
+        items: [
+          {
+            name: 'Inclusive Product Inter-State',
+            classificationCode: { type: 'HSN' as const, code: '847130' },
+            quantity: 1,
+            unit: 'PCS',
+            uqc: 'PCS',
+            ratePaise: 590000, // ₹5,900.00
+            isPriceInclusiveOfGst: true,
+            resolvedTaxRate: dummyResolved18,
+          },
+        ],
+      });
+
+      const item = res.items[0];
+      expect(item.taxablePaise).toBe(500000); // ₹5,000.00
+      expect(item.resolvedIgstPaise).toBe(90000); // ₹900.00
+      expect(item.resolvedCgstPaise).toBe(0);
+      expect(item.resolvedSgstPaise).toBe(0);
+      expect(item.totalAmountPaise).toBe(590000); // ₹5,900.00
+    });
+
+    it('Line Total Conservation (Invariant 1): Taxable + CGST + SGST + IGST + UTGST + Cess === Total Amount for all items', () => {
+      const res = calculateInvoice({
+        supplierStateCode: '33',
+        placeOfSupplyStateCode: '33',
+        items: [
+          {
+            name: 'Item 1 Exclusive',
+            classificationCode: { type: 'HSN' as const, code: '847130' },
+            quantity: 3,
+            unit: 'PCS',
+            uqc: 'PCS',
+            ratePaise: 123456,
+            resolvedTaxRate: dummyResolved18,
+          },
+          {
+            name: 'Item 2 Inclusive',
+            classificationCode: { type: 'HSN' as const, code: '847140' },
+            quantity: 2,
+            unit: 'PCS',
+            uqc: 'PCS',
+            ratePaise: 98765,
+            isPriceInclusiveOfGst: true,
+            resolvedTaxRate: dummyResolved5,
+          },
+        ],
+      });
+
+      for (const item of res.items) {
+        const sum = item.taxablePaise + item.resolvedCgstPaise + item.resolvedSgstPaise + item.resolvedIgstPaise + item.resolvedUtgstPaise;
+        expect(sum).toBe(item.totalAmountPaise);
+      }
+    });
+  });
 });

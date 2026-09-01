@@ -192,7 +192,8 @@ export async function runPhase4aAdversarialMatrix() {
     items: [
       {
         itemId: mutProduct._id.toString(),
-        name: mutProduct.name,
+        name: 'Original HSN Product',
+        hsnCode: mutProduct.hsnCode,
         hsnSacCode: mutProduct.hsnCode,
         quantity: 1,
         unit: 'PCS',
@@ -213,13 +214,14 @@ export async function runPhase4aAdversarialMatrix() {
   const fetchedInv = await InvoiceModel.findById(issuedInv._id).lean().exec();
   const pdfVm = await pdfDocumentService.getInvoiceViewModel(bId, issuedInv._id.toString());
 
-  console.log('fetchedInv item 0 name:', fetchedInv?.items[0].name);
-  console.log('fetchedInv item 0 hsnSacCode:', fetchedInv?.items[0].hsnSacCode);
+  const fetchedItem = fetchedInv?.items[0] as any;
+  console.log('fetchedInv item 0 name:', fetchedItem?.name);
+  console.log('fetchedInv item 0 hsnCode:', fetchedItem?.hsnCode || fetchedItem?.hsnSacCode);
   console.log('pdfVm item 0 hsnSacCode:', pdfVm.items[0].hsnSacCode);
 
   scenarios['Historical Issued Invoice Catalog Mutation Freeze'] =
-    fetchedInv?.items[0].name === 'Original HSN Product' &&
-    fetchedInv?.items[0].hsnSacCode === '84818010' &&
+    fetchedItem?.name === 'Original HSN Product' &&
+    (fetchedItem?.hsnCode === '84818010' || fetchedItem?.hsnSacCode === '84818010') &&
     pdfVm.items[0].hsnSacCode === '84818010';
 
   // Scenario 5: Invoice Active Payment Cancellation Lock
@@ -245,6 +247,7 @@ export async function runPhase4aAdversarialMatrix() {
     items: [
       {
         name: 'Payment Target Item',
+        hsnCode: '84818030',
         hsnSacCode: '84818030',
         quantity: 1,
         unit: 'PCS',

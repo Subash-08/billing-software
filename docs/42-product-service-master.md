@@ -1,118 +1,52 @@
-# 42 — Product, Service, Category & Unit Master Architecture Specification
+# 42 — Product & Service Master Architecture
 
-## 1. Overview & System Purpose
-
-This specification establishes the architectural contract for the **Product, Service, Category, and Unit Master Modules** of the NIRAMAALAI SaaS billing system.
-
-The Catalog Master represents physical goods, billable services, business-defined classification categories, and global unit/UQC master data backed by **LIVE MongoDB Atlas** persistence.
-
----
-
-## 2. Core Architectural Principles & Boundaries
-
-### 2.1 Multi-Tenant Isolation Model
-$$\text{Session Cookie} \longrightarrow \text{User} \longrightarrow \text{Business.userId} \longrightarrow \text{businessId} \longrightarrow \text{CatalogRepository} \longrightarrow \text{MongoDB}$$
-
-- `businessId` MUST be derived strictly from authenticated server session context.
-- The client browser payload (`req.body.businessId`, query parameters, or URL segments) MUST NEVER supply or manipulate `businessId`.
-- `Category`, `Product`, and `Service` collections are strictly tenant-isolated by `businessId`.
-- `Unit` is global master data (shared across all businesses).
-
-### 2.2 Crucial GST Engine Boundary (Master Data vs Tax Engine)
-- Product and Service Master records store **CATALOG DEFAULT DATA** (`hsnCode`, `sacCode`, `uqc`, `sellingPrice`, `defaultGstRate`, `taxTreatment`).
-- Product/Service CRUD operations MUST NOT calculate CGST, SGST, UTGST, IGST, or Cess. Calculation logic belongs exclusively to Phase 10 (`src/engine/gst/`).
-- `defaultGstRate` is a **catalog default reference** validated against the `TaxRate` master data. It is NOT the final invoice tax rate.
-- `TaxTreatment` (`TAXABLE`, `NIL_RATED`, `EXEMPT`, `NON_GST`, `ZERO_RATED`) is distinct from `TaxRate`. A `0%` rate does NOT automatically mean `EXEMPT` or `NIL_RATED`.
-
-### 2.3 Unit & UQC Server Resolution
-- Units are global master data (`UnitModel`).
-- Server-side validation resolves `unit` (symbol, e.g. `"Pcs"`) and `uqc` (official GST UQC, e.g. `"PCS"`) against `UnitModel` to prevent browser inconsistency (e.g. `unit = PCS, uqc = KGS`).
-
-### 2.4 Category Type Compatibility & Cross-Tenant Protection
-- `Category.type`: `'PRODUCT'`, `'SERVICE'`, or `'BOTH'`.
-- Product accepts `PRODUCT` or `BOTH` categories; rejects `SERVICE` categories.
-- Service accepts `SERVICE` or `BOTH` categories; rejects `PRODUCT` categories.
-- Cross-tenant category references (assigning Business A's product to Business B's category ID) are strictly rejected with HTTP 404/400.
-- New Products/Services CANNOT reference an `INACTIVE` Category or an `INACTIVE` Unit. Historical records retain existing references.
-
-### 2.5 SKU / Service Code Normalization & Uniqueness
-- Product `code` (SKU) and Service `code` are normalized with `.trim().toUpperCase()`.
-- SKU and Service code uniqueness is strictly **business-scoped** (`{ businessId: 1, code: 1 }`).
-- Product names and Service names are NOT required to be unique.
-- MongoDB E11000 duplicate key errors are caught and returned as HTTP 409 Conflict.
-
-### 2.6 Money & Financial Precision
-- Prices (`sellingPrice`, `purchasePrice`, `rate`) use `src/lib/money.ts` exact integer arithmetic or paise rounding helpers. Negative values, `NaN`, and `Infinity` are rejected.
-
-### 2.7 Soft Deactivation Policy
-- Deleting a Product, Service, or Category sets `status: 'INACTIVE'`. Physical document deletion is prohibited.
+- **Status:** Approved Architecture Specification (v1.0 — GST Module Upgrade)
+- **Owner:** Product & Inventory Engineering
+- **Last Updated:** 2026-08-31
+- **Purpose:** Specifies data contracts, schemas, HSN/SAC separation, UOM, tax rate master linkage, price inclusive toggle, and snapshot isolation for Products and Services.
 
 ---
 
-## 3. Database Schema Models
+## 1. Architectural Philosophy
 
-### 3.1 Product Schema (`products` collection)
-```typescript
-interface IProductCatalogItem extends Document {
-  businessId: Types.ObjectId;
-  type: 'PRODUCT';
-  name: string;
-  code?: string; // SKU, normalized UPPERCASE
-  hsnCode: string;
-  unit: string; // ref Unit.symbol
-  uqc: string; // ref Unit.uqc
-  sellingPrice: number;
-  purchasePrice?: number;
-  defaultGstRate: number; // Catalog default reference
-  taxTreatment: 'TAXABLE' | 'NIL_RATED' | 'EXEMPT' | 'NON_GST' | 'ZERO_RATED';
-  categoryId?: Types.ObjectId;
-  description?: string;
-  status: 'ACTIVE' | 'INACTIVE';
-  createdAt: Date;
-  updatedAt: Date;
-}
-```
+Products (Goods) and Services are separate entities with distinct classification requirements:
+- **Products (Goods):** Have `hsnCode` (4, 6, or 8 digits), `unit`, `uqc`, `sellingPrice`, `isPriceInclusiveOfGst`, `defaultTaxRateId`.
+- **Services (Services):** Have `sacCode` (exactly 6 digits), `billingUnit`, `uqc`, `rate` (selling price in rupees), `isPriceInclusiveOfGst`, `defaultTaxRateId`.
 
-### 3.2 Service Schema (`services` collection)
-```typescript
-interface IServiceItem extends Document {
-  businessId: Types.ObjectId;
-  type: 'SERVICE';
-  name: string;
-  code?: string; // Service code, normalized UPPERCASE
-  sacCode: string;
-  billingUnit: string; // ref Unit.symbol
-  rate: number;
-  defaultGstRate: number; // Catalog default reference
-  taxTreatment: 'TAXABLE' | 'NIL_RATED' | 'EXEMPT' | 'NON_GST' | 'ZERO_RATED';
-  categoryId?: Types.ObjectId;
-  description?: string;
-  status: 'ACTIVE' | 'INACTIVE';
-  createdAt: Date;
-  updatedAt: Date;
-}
-```
+**Core Rule (Invariant 7):** Product and Service masters configure **default tax suggestions** (`defaultTaxRateId`). The HSN or SAC code itself **NEVER calculates tax**. Tax rates are strictly resolved from `TaxRate` master data.
 
-### 3.3 Category Schema (`categories` collection)
+---
+
+## 2. Product Model Data Schema (`IProductCatalogItem`)
+
 ```typescript
-interface ICategory extends Document {
+export interface IProductCatalogItem extends Document {
+  _id: Types.ObjectId;
   businessId: Types.ObjectId;
   name: string;
-  type: 'PRODUCT' | 'SERVICE' | 'BOTH';
+  sku?: string;
   description?: string;
-  status: 'ACTIVE' | 'INACTIVE';
-  createdAt: Date;
-  updatedAt: Date;
-}
-```
+  category?: string;
 
-### 3.4 Unit Schema (`units` collection — Global Master)
-```typescript
-interface IUnitMaster extends Document {
-  name: string;
-  symbol: string;
-  uqc: string;
-  description: string;
+  // Classification & Tax
+  hsnCode: string;                         // 4, 6, or 8 digits (Invariant 9)
+  defaultTaxRateId?: Types.ObjectId;       // FK → TaxRate Master
+  defaultGstRate: number;                  // Kept as migration fallback (deprecated)
+  isPriceInclusiveOfGst: boolean;          // Default: false
+
+  // Unit of Measure (UOM)
+  unit: string;                            // Display name e.g. "Pieces", "Boxes"
+  uqc: string;                             // Official GST UQC e.g. "PCS", "BOX", "NOS"
+
+  // Pricing
+  sellingPrice: number;                    // Base selling price in rupees
+  purchasePrice?: number;                  // Cost price in rupees
+
+  // Inventory
+  trackInventory: boolean;
+  currentStock?: number;
+  minStockLevel?: number;
+
   status: 'ACTIVE' | 'INACTIVE';
   createdAt: Date;
   updatedAt: Date;
@@ -121,8 +55,54 @@ interface IUnitMaster extends Document {
 
 ---
 
-## 4. Audit Log Event Types
+## 3. Service Model Data Schema (`IServiceItem`)
 
-- `PRODUCT_CREATED`, `PRODUCT_UPDATED`, `PRODUCT_DEACTIVATED`
-- `SERVICE_CREATED`, `SERVICE_UPDATED`, `SERVICE_DEACTIVATED`
-- `CATEGORY_CREATED`, `CATEGORY_UPDATED`, `CATEGORY_DEACTIVATED`
+```typescript
+export interface IServiceItem extends Document {
+  _id: Types.ObjectId;
+  businessId: Types.ObjectId;
+  name: string;
+  code?: string;
+  description?: string;
+  category?: string;
+
+  // Classification & Tax
+  sacCode: string;                         // Exactly 6 digits (Invariant 9)
+  defaultTaxRateId?: Types.ObjectId;       // FK → TaxRate Master
+  defaultGstRate: number;                  // Kept as migration fallback (deprecated)
+  isPriceInclusiveOfGst: boolean;          // Default: false
+
+  // Unit of Measure (UOM)
+  billingUnit: string;                     // Display name e.g. "Hours", "Days", "Job"
+  uqc: string;                             // Official GST UQC e.g. "HRS", "JOB", "NOS" (Default: "JOB")
+
+  // Pricing
+  rate: number;                            // Service charge rate in rupees
+
+  status: 'ACTIVE' | 'INACTIVE';
+  createdAt: Date;
+  updatedAt: Date;
+}
+```
+
+---
+
+## 4. Master Data vs. Invoice Snapshot Isolation
+
+Editing a Product or Service record in catalog master:
+- Updates default suggestions for FUTURE invoices only.
+- **NEVER** mutates past issued invoices or past credit notes (Invariants 5 & 6).
+- If a Product's HSN code is updated from `847130` → `847141`, past issued invoices retain `847130`.
+
+---
+
+## 5. UI & UX Standards for Catalog Items
+
+1. **HSN Search Widget:** Allows searching HSN codes by keyword or code. Displays format validation error if `/^[0-9]{4,8}$/` fails. Displays master lookup warning if code is not in `HsnSacMaster`.
+2. **SAC Search Widget:** Allows searching SAC codes by keyword or 6-digit code. Enforces `/^[0-9]{6}$/`.
+3. **GST Rate Dropdown:** Populated dynamically from `GET /api/tax-rates`. Displays full rate structure e.g. `"18% — GST 18% (CGST 9% + SGST 9%)"`. No hardcoded rate options in UI.
+4. **Inclusive Toggle:** Toggle switch for `"Price Includes GST"`. When toggled, UI displays live price breakdown preview:
+   - Price Entered: ₹5,900.00
+   - Taxable Value: ₹5,000.00
+   - GST (18%): ₹900.00 (CGST ₹450 + SGST ₹450)
+   - Customer Pays: ₹5,900.00

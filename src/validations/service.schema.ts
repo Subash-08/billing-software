@@ -6,16 +6,20 @@ export const createServiceSchema = z.object({
   sacCode: z
     .string()
     .trim()
-    .regex(/^[0-9]{4,6}$/, 'SAC code must be 4 to 6 digits (e.g., 998311)'),
+    .regex(/^[0-9]{4,6}$/, 'SAC code must be 4 to 6 numeric digits'),
   billingUnit: z.string().trim().min(1, 'Billing unit is required').default('Job'),
+  uqc: z.string().trim().toUpperCase().optional().default('JOB'),
   rate: z
     .number({ invalid_type_error: 'Service rate must be a valid number' })
     .min(0, 'Service rate cannot be negative')
     .refine((val) => Number.isFinite(val), 'Service rate must be finite'),
   defaultGstRate: z
     .number({ invalid_type_error: 'GST rate must be a number' })
-    .refine((val) => [0, 5, 12, 18, 28].includes(val), 'Default GST rate must be a standard rate (0%, 5%, 12%, 18%, 28%)')
+    .nonnegative('GST rate cannot be negative')
+    .refine((val) => Number.isFinite(val), 'GST rate must be finite')
     .default(18),
+  defaultTaxRateId: z.string().trim().optional().or(z.literal('')),
+  isPriceInclusiveOfGst: z.boolean().optional().default(false),
   taxTreatment: z
     .enum(['TAXABLE', 'NIL_RATED', 'EXEMPT', 'NON_GST', 'ZERO_RATED'])
     .default('TAXABLE'),
@@ -33,9 +37,9 @@ export const serviceQuerySchema = z.object({
   categoryId: z.string().optional(),
   sacCode: z.string().optional(),
   page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(20),
+  limit: z.coerce.number().min(1).max(1000).default(50),
 });
 
-export type CreateServiceInput = z.infer<typeof createServiceSchema>;
-export type UpdateServiceInput = z.infer<typeof updateServiceSchema>;
+export type CreateServiceInput = z.input<typeof createServiceSchema>;
+export type UpdateServiceInput = z.input<typeof updateServiceSchema>;
 export type ServiceQueryInput = z.infer<typeof serviceQuerySchema>;

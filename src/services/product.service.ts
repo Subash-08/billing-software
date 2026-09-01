@@ -70,9 +70,12 @@ export class ProductService {
         sellingPrice: sanitizedSellingPrice,
         purchasePrice: sanitizedPurchasePrice,
         defaultGstRate: data.defaultGstRate,
+        isPriceInclusiveOfGst: data.isPriceInclusiveOfGst ?? false,
         taxTreatment: data.taxTreatment,
         categoryId: categoryObjId,
         description: data.description,
+        trackInventory: data.trackInventory ?? true,
+        reorderLevel: data.reorderLevel ?? 0,
         status: 'ACTIVE',
       });
 
@@ -198,9 +201,12 @@ export class ProductService {
     if (data.sellingPrice !== undefined) updatePayload.sellingPrice = roundToTwoDecimals(data.sellingPrice);
     if (data.purchasePrice !== undefined) updatePayload.purchasePrice = roundToTwoDecimals(data.purchasePrice);
     if (data.defaultGstRate !== undefined) updatePayload.defaultGstRate = data.defaultGstRate;
+    if (data.isPriceInclusiveOfGst !== undefined) updatePayload.isPriceInclusiveOfGst = data.isPriceInclusiveOfGst;
     if (data.taxTreatment !== undefined) updatePayload.taxTreatment = data.taxTreatment;
     if (data.categoryId !== undefined) updatePayload.categoryId = categoryObjId;
     if (data.description !== undefined) updatePayload.description = data.description;
+    if (data.trackInventory !== undefined) updatePayload.trackInventory = data.trackInventory;
+    if (data.reorderLevel !== undefined) updatePayload.reorderLevel = data.reorderLevel;
     if (data.status !== undefined) updatePayload.status = data.status;
 
     try {

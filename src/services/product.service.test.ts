@@ -188,6 +188,35 @@ describe('Phase 9 Product Service & Catalog Isolation Test Suite', () => {
     expect(product.businessId.toString()).toBe(businessAId.toString());
   });
 
+  it('Product creation persists isPriceInclusiveOfGst, trackInventory and reorderLevel', async () => {
+    if (!isConnected || !userAId) return;
+
+    const product = await productService.createProduct(userAId, {
+      name: 'Inclusive Stock Product',
+      hsnCode: '84713000',
+      unit: 'Pcs',
+      uqc: 'PCS',
+      sellingPrice: 1180,
+      defaultGstRate: 18,
+      isPriceInclusiveOfGst: true,
+      trackInventory: true,
+      reorderLevel: 5,
+      taxTreatment: 'TAXABLE',
+    });
+
+    expect(product.isPriceInclusiveOfGst).toBe(true);
+    expect(product.trackInventory).toBe(true);
+    expect(product.reorderLevel).toBe(5);
+
+    // Update test
+    const updated = await productService.updateProduct(userAId, product._id as Types.ObjectId, {
+      isPriceInclusiveOfGst: false,
+      reorderLevel: 10,
+    });
+    expect(updated.isPriceInclusiveOfGst).toBe(false);
+    expect(updated.reorderLevel).toBe(10);
+  });
+
   it('Category Compatibility: Rejects assigning SERVICE-only category to a Product', async () => {
     if (!isConnected || !userAId) return;
 

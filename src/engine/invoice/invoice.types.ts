@@ -52,6 +52,7 @@ export interface InvoiceLineInput {
   taxTreatment?: GstTaxTreatment;
   resolvedTaxRate: ResolvedTaxRate;
   cessAmountPerUnitPaise?: number;
+  isPriceInclusiveOfGst?: boolean;
 }
 
 export interface InvoiceCalculationInput {
@@ -118,6 +119,13 @@ export interface CalculatedInvoiceItem {
   taxablePaise: number;
   taxableAmount: number;
   gstResult: GstLineResult;
+  isPriceInclusiveOfGst: boolean;
+  enteredRatePaise: number;
+  inclusiveGrossPaise: number;
+  resolvedCgstPaise: number;
+  resolvedSgstPaise: number;
+  resolvedIgstPaise: number;
+  resolvedUtgstPaise: number;
   totalAmountPaise: number;
   totalAmount: number;
 }

@@ -99,23 +99,34 @@ export class EInvoiceProviderService {
           Loc: invoice.billToSnapshot?.city || 'Chennai',
           Stcd: invoice.billToSnapshot?.stateCode || '33',
         },
-        ItemList: invoice.items.map((item, idx) => ({
-          SlNo: (idx + 1).toString(),
-          PrdDesc: item.name,
-          IsServc: (item as unknown as { itemType?: string }).itemType === 'SERVICES' ? 'Y' : 'N',
-          HsnCd: item.hsnSacCode,
-          Qty: item.quantity,
-          Unit: item.uqc || item.unit || 'PCS',
-          UnitPrice: item.rate / 100,
-          TotAmt: item.taxableAmount / 100,
-          Discount: 0,
-          AssVal: item.taxableAmount / 100,
-          GstRt: item.gstRate,
-          IgstAmt: item.igstAmount / 100,
-          CgstAmt: item.cgstAmount / 100,
-          SgstAmt: item.sgstAmount / 100,
-          TotItemVal: item.totalAmount / 100,
-        })),
+        ItemList: invoice.items.map((item: any, idx) => {
+          const isGoods = (item.itemType || 'GOODS') === 'GOODS';
+          const hsnSac = (isGoods ? item.hsnCode : item.sacCode) || item.hsnSacCode || '998314';
+          const ratePaise = item.enteredRatePaise ?? item.rate ?? 0;
+          const taxablePaise = item.taxableAmountPaise ?? item.taxableAmount ?? 0;
+          const igstPaise = item.igstAmountPaise ?? item.igstAmount ?? 0;
+          const cgstPaise = item.cgstAmountPaise ?? item.cgstAmount ?? 0;
+          const sgstPaise = item.sgstAmountPaise ?? item.sgstAmount ?? 0;
+          const totalPaise = item.totalAmountPaise ?? item.totalAmount ?? 0;
+
+          return {
+            SlNo: (idx + 1).toString(),
+            PrdDesc: item.name,
+            IsServc: !isGoods ? 'Y' : 'N',
+            HsnCd: hsnSac,
+            Qty: item.quantity,
+            Unit: item.uqc || item.unit || 'PCS',
+            UnitPrice: ratePaise / 100,
+            TotAmt: taxablePaise / 100,
+            Discount: (item.discountAmountPaise || item.discountAmount || 0) / 100,
+            AssVal: taxablePaise / 100,
+            GstRt: item.gstRate,
+            IgstAmt: igstPaise / 100,
+            CgstAmt: cgstPaise / 100,
+            SgstAmt: sgstPaise / 100,
+            TotItemVal: totalPaise / 100,
+          };
+        }),
         ValDtls: {
           AssVal: invoice.totalTaxable / 100,
           CgstVal: invoice.totalCgst / 100,

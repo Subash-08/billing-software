@@ -27,11 +27,14 @@ interface CreditNoteItem {
   creditNoteNumber: string;
   creditNoteDate: string;
   customerSnapshot?: { displayName: string; gstin?: string };
+  totalTaxable?: number;
+  subTotal?: number;
   totalCgst?: number;
   totalSgst?: number;
   totalIgst?: number;
   grandTotal?: number;
   totals?: { grandTotalPaise: number; totalTaxablePaise: number; totalTaxPaise: number };
+  items?: Array<{ rate: number; quantity: number; gstRate: number }>;
 }
 
 function toRupees(val: number | undefined | null): number {
@@ -104,7 +107,17 @@ export default function GstSummaryReportPage() {
   const b2cIgst = b2cInvoices.reduce((sum, i) => sum + toRupees(i.totalIgst), 0);
   const b2cTotalTax = b2cCgst + b2cSgst + b2cIgst;
 
-  const cnTaxable = creditNotes.reduce((sum, cn) => sum + toRupees(cn.totals?.totalTaxablePaise), 0);
+  const cnTaxable = creditNotes.reduce((sum, cn) => {
+    let taxablePaise = cn.totals?.totalTaxablePaise || 0;
+    if (!taxablePaise && (cn.totalTaxable || cn.subTotal)) {
+      return sum + toRupees(cn.totalTaxable || cn.subTotal);
+    }
+    if (!taxablePaise && cn.items && cn.items.length > 0) {
+      taxablePaise = cn.items.reduce((s, it) => s + (it.rate || 0) * (it.quantity || 1) * 100, 0);
+    }
+    return sum + toRupees(taxablePaise);
+  }, 0);
+
   const cnTotalTax = totalCreditNotesTaxRupees;
 
   return (
@@ -137,27 +150,27 @@ export default function GstSummaryReportPage() {
         </Card>
 
         <Card className="border-slate-200 bg-white p-4 shadow-2xs rounded-xl">
-          <span className="text-[11px] font-semibold text-slate-500 block">CGST Collected</span>
+          <span className="text-[11px] font-semibold text-slate-500 block">Net Output CGST</span>
           <div className="text-lg font-bold text-teal-700 mt-1">₹{netCgstRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
           <span className="text-[10px] text-teal-600 block mt-0.5">Central Tax Output</span>
         </Card>
 
         <Card className="border-slate-200 bg-white p-4 shadow-2xs rounded-xl">
-          <span className="text-[11px] font-semibold text-slate-500 block">SGST Collected</span>
+          <span className="text-[11px] font-semibold text-slate-500 block">Net Output SGST</span>
           <div className="text-lg font-bold text-teal-700 mt-1">₹{netSgstRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
           <span className="text-[10px] text-teal-600 block mt-0.5">State Tax Output</span>
         </Card>
 
         <Card className="border-slate-200 bg-white p-4 shadow-2xs rounded-xl">
-          <span className="text-[11px] font-semibold text-slate-500 block">IGST Collected</span>
+          <span className="text-[11px] font-semibold text-slate-500 block">Net Output IGST</span>
           <div className="text-lg font-bold text-indigo-700 mt-1">₹{netIgstRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
           <span className="text-[10px] text-indigo-600 block mt-0.5">Integrated Tax Output</span>
         </Card>
 
         <Card className="border-slate-200 bg-white p-4 shadow-2xs rounded-xl">
-          <span className="text-[11px] font-semibold text-slate-500 block">Net GST Liability</span>
+          <span className="text-[11px] font-semibold text-slate-500 block">Output GST After Credit Notes</span>
           <div className="text-lg font-bold text-blue-700 mt-1">₹{totalNetTaxRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
-          <span className="text-[10px] text-blue-600 block mt-0.5">Total Output Tax Due</span>
+          <span className="text-[10px] text-blue-600 block mt-0.5">Gross GST ₹{grossCgstRupees + grossSgstRupees + grossIgstRupees} − Credit GST ₹{totalCreditNotesTaxRupees}</span>
         </Card>
       </div>
 
@@ -209,7 +222,7 @@ export default function GstSummaryReportPage() {
                 </tr>
 
                 <tr className="hover:bg-slate-50">
-                  <td className="px-6 py-4 font-bold text-slate-900">9B — Credit / Debit Notes Issued (Returns)</td>
+                  <td className="px-6 py-4 font-bold text-slate-900">9B — Credit / Debit Notes</td>
                   <td className="px-6 py-4 text-center font-bold text-red-700">{creditNotes.length}</td>
                   <td className="px-6 py-4 text-right font-bold text-red-700">₹{cnTaxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                   <td className="px-6 py-4 text-right text-red-700">₹{(cnTotalTax / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>

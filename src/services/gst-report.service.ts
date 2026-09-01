@@ -10,7 +10,12 @@ import { Types } from 'mongoose';
 import { connectToDatabase } from '@/db/connection';
 import { InvoiceModel, IInvoice } from '@/db/models/invoice.model';
 import { CustomerModel } from '@/db/models/customer.model';
+import { BusinessModel } from '@/db/models/business.model';
 import { paiseToRupees } from '@/lib/money';
+import { buildTransactionContext } from '@/engine/policy/transaction.context';
+import { GstrClassificationPolicyResolver } from '@/engine/policy/gstr-classification.policy';
+import { HsnReportingPolicyResolver } from '@/engine/policy/hsn-reporting.policy';
+import { HsnSacValidator } from '@/engine/gst/hsn-sac.validator';
 
 export interface Gstr1B2BEntry {
   gstin: string;
@@ -24,6 +29,17 @@ export interface Gstr1B2BEntry {
   igstRupees: number;
   cgstRupees: number;
   sgstRupees: number;
+  cessRupees: number;
+}
+
+export interface Gstr1B2CLEntry {
+  customerName: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  invoiceValueRupees: number;
+  placeOfSupplyStateCode: string;
+  taxableValueRupees: number;
+  igstRupees: number;
   cessRupees: number;
 }
 
@@ -52,6 +68,7 @@ export interface Gstr1ReportData {
   summary: {
     totalInvoices: number;
     b2bCount: number;
+    b2clCount: number;
     b2cCount: number;
     cancelledCount: number;
     totalInvoiceValueRupees: number;
@@ -62,6 +79,7 @@ export interface Gstr1ReportData {
     totalTaxRupees: number;
   };
   b2b: Gstr1B2BEntry[];
+  b2cl: Gstr1B2CLEntry[];
   b2cs: Gstr1B2CSEntry[];
   hsnSummary: Gstr1HsnSummaryEntry[];
   cancelledInvoiceNumbers: string[];
@@ -111,7 +129,11 @@ export class GstReportService {
     const issuedInvoices = invoices.filter((inv) => inv.status === 'ISSUED');
     const cancelledInvoices = invoices.filter((inv) => inv.status === 'CANCELLED');
 
+    const business = await BusinessModel.findById(bId).lean().exec();
+    const businessStateCode = business?.stateCode || '33';
+
     const b2b: Gstr1B2BEntry[] = [];
+    const b2cl: Gstr1B2CLEntry[] = [];
     const b2csMap: Record<string, Gstr1B2CSEntry> = {};
     const hsnMap: Record<string, Gstr1HsnSummaryEntry> = {};
 
@@ -122,7 +144,10 @@ export class GstReportService {
     let totalSgstPaise = 0;
 
     for (const inv of issuedInvoices) {
-      const isB2B = inv.billToSnapshot?.gstin && inv.billToSnapshot.gstin.trim().length === 15;
+      const txContext = buildTransactionContext(inv, business as any);
+      const classification = GstrClassificationPolicyResolver.resolve(txContext);
+      const hsnPolicy = HsnReportingPolicyResolver.resolve(txContext);
+
       const invValueRupees = paiseToRupees(inv.grandTotal);
       const taxableRupees = paiseToRupees(inv.totalTaxable);
       const igstRupees = paiseToRupees(inv.totalIgst);
@@ -136,14 +161,14 @@ export class GstReportService {
       totalCgstPaise += inv.totalCgst;
       totalSgstPaise += inv.totalSgst;
 
-      if (isB2B) {
+      if (classification.tableCategory === 'B2B') {
         b2b.push({
           gstin: inv.billToSnapshot.gstin!,
           customerName: inv.billToSnapshot.name,
           invoiceNumber: inv.invoiceNumber,
           invoiceDate: new Date(inv.invoiceDate).toISOString().split('T')[0],
           invoiceValueRupees: invValueRupees,
-          placeOfSupplyStateCode: inv.supplyDetails?.placeOfSupplyStateCode || '33',
+          placeOfSupplyStateCode: inv.supplyDetails?.placeOfSupplyStateCode || businessStateCode,
           reverseCharge: inv.supplyDetails?.reverseCharge || false,
           taxableValueRupees: taxableRupees,
           igstRupees,
@@ -151,13 +176,29 @@ export class GstReportService {
           sgstRupees,
           cessRupees,
         });
+      } else if (classification.tableCategory === 'B2CL') {
+        b2cl.push({
+          customerName: inv.billToSnapshot.name,
+          invoiceNumber: inv.invoiceNumber,
+          invoiceDate: new Date(inv.invoiceDate).toISOString().split('T')[0],
+          invoiceValueRupees: invValueRupees,
+          placeOfSupplyStateCode: inv.supplyDetails?.placeOfSupplyStateCode || businessStateCode,
+          taxableValueRupees: taxableRupees,
+          igstRupees,
+          cessRupees,
+        });
       } else {
         // Aggregated B2CS by Place of Supply + GST Rate
-        for (const item of inv.items) {
-          const key = `${inv.supplyDetails?.placeOfSupplyStateCode || '33'}-${item.gstRate}`;
+        for (const item of (inv.items as any[])) {
+          const itemTaxable = item.taxableAmountPaise ?? item.taxableAmount ?? 0;
+          const itemIgst = item.igstAmountPaise ?? item.igstAmount ?? 0;
+          const itemCgst = item.cgstAmountPaise ?? item.cgstAmount ?? 0;
+          const itemSgst = item.sgstAmountPaise ?? item.sgstAmount ?? 0;
+
+          const key = `${inv.supplyDetails?.placeOfSupplyStateCode || businessStateCode}-${item.gstRate}`;
           if (!b2csMap[key]) {
             b2csMap[key] = {
-              placeOfSupplyStateCode: inv.supplyDetails?.placeOfSupplyStateCode || '33',
+              placeOfSupplyStateCode: inv.supplyDetails?.placeOfSupplyStateCode || businessStateCode,
               gstRate: item.gstRate,
               taxableValueRupees: 0,
               igstRupees: 0,
@@ -165,16 +206,26 @@ export class GstReportService {
               sgstRupees: 0,
             };
           }
-          b2csMap[key].taxableValueRupees += paiseToRupees(item.taxableAmount);
-          b2csMap[key].igstRupees += paiseToRupees(item.igstAmount);
-          b2csMap[key].cgstRupees += paiseToRupees(item.cgstAmount);
-          b2csMap[key].sgstRupees += paiseToRupees(item.sgstAmount);
+          b2csMap[key].taxableValueRupees += paiseToRupees(itemTaxable);
+          b2csMap[key].igstRupees += paiseToRupees(itemIgst);
+          b2csMap[key].cgstRupees += paiseToRupees(itemCgst);
+          b2csMap[key].sgstRupees += paiseToRupees(itemSgst);
         }
       }
 
-      // HSN Summary aggregation
-      for (const item of inv.items) {
-        const code = item.hsnSacCode || 'OTHERS';
+      // HSN / SAC Summary aggregation using resolveHsnReportingCode
+      for (const item of (inv.items as any[])) {
+        const isGoods = (item.itemType || 'GOODS') === 'GOODS';
+        const rawCode = (isGoods ? item.hsnCode : item.sacCode) || item.hsnSacCode || (isGoods ? '000000' : '990000');
+        const resolvedHsn = HsnSacValidator.resolveHsnReportingCode(rawCode, hsnPolicy.requiredDigits);
+        const code = resolvedHsn.reportingCode;
+
+        const itemTaxable = item.taxableAmountPaise ?? item.taxableAmount ?? 0;
+        const itemTotal = item.totalAmountPaise ?? item.totalAmount ?? 0;
+        const itemIgst = item.igstAmountPaise ?? item.igstAmount ?? 0;
+        const itemCgst = item.cgstAmountPaise ?? item.cgstAmount ?? 0;
+        const itemSgst = item.sgstAmountPaise ?? item.sgstAmount ?? 0;
+
         if (!hsnMap[code]) {
           hsnMap[code] = {
             hsnSacCode: code,
@@ -189,11 +240,11 @@ export class GstReportService {
           };
         }
         hsnMap[code].totalQuantity += item.quantity;
-        hsnMap[code].totalValueRupees += paiseToRupees(item.totalAmount);
-        hsnMap[code].taxableValueRupees += paiseToRupees(item.taxableAmount);
-        hsnMap[code].igstRupees += paiseToRupees(item.igstAmount);
-        hsnMap[code].cgstRupees += paiseToRupees(item.cgstAmount);
-        hsnMap[code].sgstRupees += paiseToRupees(item.sgstAmount);
+        hsnMap[code].totalValueRupees += paiseToRupees(itemTotal);
+        hsnMap[code].taxableValueRupees += paiseToRupees(itemTaxable);
+        hsnMap[code].igstRupees += paiseToRupees(itemIgst);
+        hsnMap[code].cgstRupees += paiseToRupees(itemCgst);
+        hsnMap[code].sgstRupees += paiseToRupees(itemSgst);
       }
     }
 
@@ -203,6 +254,7 @@ export class GstReportService {
       summary: {
         totalInvoices: issuedInvoices.length,
         b2bCount: b2b.length,
+        b2clCount: b2cl.length,
         b2cCount: Object.keys(b2csMap).length,
         cancelledCount: cancelledInvoices.length,
         totalInvoiceValueRupees: paiseToRupees(totalInvoiceValuePaise),
@@ -213,6 +265,7 @@ export class GstReportService {
         totalTaxRupees: paiseToRupees(totalTaxPaise),
       },
       b2b,
+      b2cl,
       b2cs: Object.values(b2csMap),
       hsnSummary: Object.values(hsnMap),
       cancelledInvoiceNumbers: cancelledInvoices.map((inv) => inv.invoiceNumber),

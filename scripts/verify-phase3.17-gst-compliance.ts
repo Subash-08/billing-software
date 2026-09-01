@@ -125,7 +125,7 @@ export async function runGstComplianceAudit() {
   const hasRecipientIdentity = Boolean(issuedInv.billToSnapshot?.name && issuedInv.billToSnapshot?.gstin);
   const hasDocumentMetadata = Boolean(issuedInv.invoiceNumber && issuedInv.invoiceDate && issuedInv.financialYear);
   const hasItemParticulars = issuedInv.items.every(
-    (item) => item.name && item.hsnSacCode && item.quantity > 0 && item.unit && item.rate > 0 && item.gstRate >= 0
+    (item: any) => item.name && (item.hsnCode || item.sacCode || item.hsnSacCode) && item.quantity > 0 && item.unit && (item.enteredRatePaise || item.rate) > 0 && item.gstRate >= 0
   );
   const hasTaxBreakdown = Number.isInteger(issuedInv.totalCgst) && Number.isInteger(issuedInv.totalSgst) && Number.isInteger(issuedInv.grandTotal);
 

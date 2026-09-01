@@ -2,7 +2,16 @@ import mongoose, { Schema, Document, Model, Types } from 'mongoose';
 
 export interface IDocumentSequence extends Document {
   businessId: Types.ObjectId;
-  documentType: 'TAX_INVOICE' | 'BILL_OF_SUPPLY' | 'CREDIT_NOTE' | 'DEBIT_NOTE' | 'QUOTATION' | 'DELIVERY_CHALLAN' | 'RECEIPT';
+  documentType:
+    | 'TAX_INVOICE'
+    | 'BILL_OF_SUPPLY'
+    | 'CREDIT_NOTE'
+    | 'DEBIT_NOTE'
+    | 'QUOTATION'
+    | 'PROFORMA'
+    | 'SALES_ORDER'
+    | 'DELIVERY_CHALLAN'
+    | 'RECEIPT';
   financialYear: string;
   prefix: string;
   nextSeq: number;
@@ -15,7 +24,17 @@ const DocumentSequenceSchema = new Schema<IDocumentSequence>(
     businessId: { type: Schema.Types.ObjectId, ref: 'Business', required: true, index: true },
     documentType: {
       type: String,
-      enum: ['TAX_INVOICE', 'BILL_OF_SUPPLY', 'CREDIT_NOTE', 'DEBIT_NOTE', 'QUOTATION', 'DELIVERY_CHALLAN', 'RECEIPT'],
+      enum: [
+        'TAX_INVOICE',
+        'BILL_OF_SUPPLY',
+        'CREDIT_NOTE',
+        'DEBIT_NOTE',
+        'QUOTATION',
+        'PROFORMA',
+        'SALES_ORDER',
+        'DELIVERY_CHALLAN',
+        'RECEIPT',
+      ],
       required: true,
     },
     financialYear: { type: String, required: true },

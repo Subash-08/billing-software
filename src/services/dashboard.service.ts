@@ -163,7 +163,7 @@ export class DashboardService {
     const dateFilter = this.resolveDateFilter(filters);
     const invoiceMatchQuery = { businessId: bId, ...dateFilter };
 
-    // 1. KPI Aggregation over ISSUED Invoices
+    // 1. KPI Aggregation over ISSUED Invoices (Sales & Tax in selected period)
     const [kpiResult] = await InvoiceModel.aggregate([
       { $match: { ...invoiceMatchQuery, status: 'ISSUED' } },
       {
@@ -174,10 +174,15 @@ export class DashboardService {
           cgstPaise: { $sum: '$totalCgst' },
           sgstPaise: { $sum: '$totalSgst' },
           igstPaise: { $sum: '$totalIgst' },
-          outstandingPaise: { $sum: '$outstandingBalance' },
           invoiceCount: { $sum: 1 },
         },
       },
+    ]).exec() || [{}];
+
+    // 1b. Cumulative Total Outstanding Receivables (Point-in-time across all issued invoices)
+    const [totalOutstandingResult] = await InvoiceModel.aggregate([
+      { $match: { businessId: bId, status: 'ISSUED' } },
+      { $group: { _id: null, totalOutstandingPaise: { $sum: '$outstandingBalance' } } },
     ]).exec() || [{}];
 
     // 2. Payments Received Aggregation
@@ -303,7 +308,7 @@ export class DashboardService {
         totalSgstRupees: paiseToRupees(sgstPaise),
         totalIgstRupees: paiseToRupees(igstPaise),
         paymentsReceivedRupees: paiseToRupees(paymentResult?.totalPaymentsPaise || 0),
-        outstandingReceivablesRupees: paiseToRupees(kpiResult?.outstandingPaise || 0),
+        outstandingReceivablesRupees: paiseToRupees(totalOutstandingResult?.totalOutstandingPaise || 0),
         totalCreditBalanceRupees: paiseToRupees(creditResult?.totalCreditPaise || 0),
         issuedInvoiceCount: kpiResult?.invoiceCount || 0,
       },

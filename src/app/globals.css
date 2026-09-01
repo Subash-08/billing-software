@@ -28,6 +28,36 @@
   }
 }
 
+/* Hide number input spinners globally across Chrome, Safari, Edge, Firefox */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
+}
+
+/* Global Print Stylesheet Rules */
+@media print {
+  aside,
+  header,
+  nav,
+  .no-print,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  body, html {
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
+
 /* Ultra-thin 4px dark custom scrollbar */
 .scrollbar-thin {
   scrollbar-width: thin;

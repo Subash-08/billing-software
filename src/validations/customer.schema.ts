@@ -76,7 +76,7 @@ export const customerQuerySchema = z.object({
   gstTreatment: z.string().optional(),
   customerType: z.enum(['BUSINESS', 'INDIVIDUAL']).optional(),
   page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(20),
+  limit: z.coerce.number().min(1).max(1000).default(50),
 });
 
 export type CustomerAddressInput = z.infer<typeof customerAddressSchema>;

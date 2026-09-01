@@ -34,7 +34,7 @@ async function runReconciliation() {
     // 1. Upgrade legacy rupees units to paise if needed
     let grandTotalPaise = inv.grandTotal;
     if (inv.grandTotal < 500000 && inv.items && inv.items.length > 0) {
-      const firstItemGross = (inv.items[0].rate || 0) * (inv.items[0].quantity || 1);
+      const firstItemGross = (((inv.items[0] as any).enteredRatePaise || (inv.items[0] as any).rate || 0) / 100) * (inv.items[0].quantity || 1);
       if (firstItemGross > 0 && inv.grandTotal <= firstItemGross * 2) {
         grandTotalPaise = Math.round(inv.grandTotal * 100);
       }

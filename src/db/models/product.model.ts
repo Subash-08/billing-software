@@ -13,9 +13,14 @@ export interface IProductCatalogItem extends Document {
   sellingPrice: number;
   purchasePrice?: number;
   defaultGstRate: number;
+  defaultTaxRateId?: Types.ObjectId;
+  isPriceInclusiveOfGst: boolean;
   taxTreatment: TaxTreatmentType;
   categoryId?: Types.ObjectId;
   description?: string;
+  stockQuantity: number;
+  reorderLevel?: number;
+  trackInventory: boolean;
   status: 'ACTIVE' | 'INACTIVE';
   createdAt: Date;
   updatedAt: Date;
@@ -73,6 +78,14 @@ const ProductCatalogSchema = new Schema<IProductCatalogItem>(
       required: true,
       default: 18,
     },
+    defaultTaxRateId: {
+      type: Schema.Types.ObjectId,
+      ref: 'TaxRate',
+    },
+    isPriceInclusiveOfGst: {
+      type: Boolean,
+      default: false,
+    },
     taxTreatment: {
       type: String,
       enum: ['TAXABLE', 'NIL_RATED', 'EXEMPT', 'NON_GST', 'ZERO_RATED'],
@@ -83,6 +96,18 @@ const ProductCatalogSchema = new Schema<IProductCatalogItem>(
       ref: 'Category',
     },
     description: String,
+    stockQuantity: {
+      type: Number,
+      default: 0,
+    },
+    reorderLevel: {
+      type: Number,
+      default: 0,
+    },
+    trackInventory: {
+      type: Boolean,
+      default: true,
+    },
     status: {
       type: String,
       enum: ['ACTIVE', 'INACTIVE'],

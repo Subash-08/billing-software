@@ -14,6 +14,8 @@ export interface IBusinessGstSettings {
   gstinStatus: 'NOT_VALIDATED' | 'VALID' | 'INVALID' | 'SUSPENDED' | 'CANCELLED' | 'UNKNOWN';
   stateCode: string;
   isComposition?: boolean;
+  // Taxpayer turnover profile for HSN reporting policy resolution
+  annualTurnoverCategory?: 'ABOVE_5CR' | 'UP_TO_5CR';
 }
 
 export interface IBusinessBankDetails {
@@ -40,6 +42,8 @@ export interface IBusinessInvoiceSettings {
   defaultNotes?: string;
   defaultTermsAndConditions?: string;
   footerText?: string;
+  // HSN/SAC reporting level override (AUTO = resolve from taxpayer profile + CBIC policy)
+  hsnReportingLevel?: 'AUTO' | 'HSN_4' | 'HSN_6' | 'HSN_8';
 }
 
 export interface IBusinessPaymentModeSetting {
@@ -162,6 +166,10 @@ const BusinessSchema = new Schema<IBusiness>(
       },
       stateCode: String,
       isComposition: Boolean,
+      annualTurnoverCategory: {
+        type: String,
+        enum: ['ABOVE_5CR', 'UP_TO_5CR'],
+      },
     },
     bankDetails: {
       accountHolderName: String,
@@ -189,6 +197,11 @@ const BusinessSchema = new Schema<IBusiness>(
       defaultNotes: String,
       defaultTermsAndConditions: String,
       footerText: String,
+      hsnReportingLevel: {
+        type: String,
+        enum: ['AUTO', 'HSN_4', 'HSN_6', 'HSN_8'],
+        default: 'AUTO',
+      },
     },
     paymentSettings: [
       {

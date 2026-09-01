@@ -5,6 +5,7 @@ import {
   CalculatedAdditionalCharge,
 } from './invoice.types';
 import { calculateLineGst } from '../gst/gst.calculator';
+import { GstLineResult } from '../gst/gst.types';
 import { paiseToRupees } from '@/lib/money';
 import {
   calculateLineDiscountPaise,
@@ -127,28 +128,107 @@ export function calculateInvoice(input: InvoiceCalculationInput): InvoiceCalcula
     const totalItemTaxReducingDiscountPaise = lineTaxReducingPaise + allocInvTaxReducingPaise;
     const totalItemCommercialDiscountPaise = lineCommercialPaise + allocInvCommercialPaise;
 
-    const lineTaxablePaise = grossLinePaise - totalItemTaxReducingDiscountPaise;
+    const isPriceInclusive = item.isPriceInclusiveOfGst === true;
+    const gstRate = item.resolvedTaxRate?.rate ?? 0;
+
+    let lineTaxablePaise: number;
+    let resolvedCgstPaise: number;
+    let resolvedSgstPaise: number;
+    let resolvedIgstPaise: number;
+    let resolvedUtgstPaise: number;
+    let itemTotalAmountPaise: number;
+    let gstResult: GstLineResult;
+
+    if (isPriceInclusive && gstRate > 0) {
+      // ── INCLUSIVE PRICING: Residual Method (Invariant 2) ────────────────
+      const netInclusivePaise = grossLinePaise - totalItemTaxReducingDiscountPaise;
+      lineTaxablePaise = Math.round(netInclusivePaise / (1 + gstRate / 100));
+      const embeddedGstPaise = netInclusivePaise - lineTaxablePaise;
+
+      gstResult = calculateLineGst({
+        taxablePaise: lineTaxablePaise,
+        resolvedTaxRate: item.resolvedTaxRate,
+        supplierStateCode: input.supplierStateCode,
+        placeOfSupplyStateCode: input.placeOfSupplyStateCode,
+        recipientStateCode: input.recipientStateCode,
+        supplyType: item.itemType || input.supplyType,
+        supplyClassification: input.supplyClassification,
+        taxTreatment: item.taxTreatment || input.taxTreatment,
+        customerGstType: input.customerGstType,
+        zeroRatedMethod: input.zeroRatedMethod,
+        taxMechanism: input.taxMechanism,
+        placeOfSupplyDetermination: input.placeOfSupplyDetermination,
+        cessAmountPerUnitPaise: item.cessAmountPerUnitPaise,
+        quantity: item.quantity,
+      });
+
+      if (gstResult.jurisdiction === 'INTRA_STATE') {
+        resolvedCgstPaise = Math.floor(embeddedGstPaise / 2);
+        resolvedSgstPaise = embeddedGstPaise - resolvedCgstPaise;
+        resolvedIgstPaise = 0;
+        resolvedUtgstPaise = 0;
+      } else if (gstResult.jurisdiction === 'UNION_TERRITORY') {
+        resolvedCgstPaise = Math.floor(embeddedGstPaise / 2);
+        resolvedUtgstPaise = embeddedGstPaise - resolvedCgstPaise;
+        resolvedSgstPaise = 0;
+        resolvedIgstPaise = 0;
+      } else {
+        resolvedIgstPaise = embeddedGstPaise;
+        resolvedCgstPaise = 0;
+        resolvedSgstPaise = 0;
+        resolvedUtgstPaise = 0;
+      }
+      itemTotalAmountPaise = netInclusivePaise - totalItemCommercialDiscountPaise;
+    } else if (isPriceInclusive && gstRate === 0) {
+      lineTaxablePaise = grossLinePaise - totalItemTaxReducingDiscountPaise;
+      gstResult = calculateLineGst({
+        taxablePaise: lineTaxablePaise,
+        resolvedTaxRate: item.resolvedTaxRate,
+        supplierStateCode: input.supplierStateCode,
+        placeOfSupplyStateCode: input.placeOfSupplyStateCode,
+        recipientStateCode: input.recipientStateCode,
+        supplyType: item.itemType || input.supplyType,
+        supplyClassification: input.supplyClassification,
+        taxTreatment: item.taxTreatment || input.taxTreatment,
+        customerGstType: input.customerGstType,
+        zeroRatedMethod: input.zeroRatedMethod,
+        taxMechanism: input.taxMechanism,
+        placeOfSupplyDetermination: input.placeOfSupplyDetermination,
+        cessAmountPerUnitPaise: item.cessAmountPerUnitPaise,
+        quantity: item.quantity,
+      });
+      resolvedCgstPaise = 0;
+      resolvedSgstPaise = 0;
+      resolvedIgstPaise = 0;
+      resolvedUtgstPaise = 0;
+      itemTotalAmountPaise = lineTaxablePaise - totalItemCommercialDiscountPaise;
+    } else {
+      // ── EXCLUSIVE PRICING: Standard ──────────────────────────────────────
+      lineTaxablePaise = grossLinePaise - totalItemTaxReducingDiscountPaise;
+      gstResult = calculateLineGst({
+        taxablePaise: lineTaxablePaise,
+        resolvedTaxRate: item.resolvedTaxRate,
+        supplierStateCode: input.supplierStateCode,
+        placeOfSupplyStateCode: input.placeOfSupplyStateCode,
+        recipientStateCode: input.recipientStateCode,
+        supplyType: item.itemType || input.supplyType,
+        supplyClassification: input.supplyClassification,
+        taxTreatment: item.taxTreatment || input.taxTreatment,
+        customerGstType: input.customerGstType,
+        zeroRatedMethod: input.zeroRatedMethod,
+        taxMechanism: input.taxMechanism,
+        placeOfSupplyDetermination: input.placeOfSupplyDetermination,
+        cessAmountPerUnitPaise: item.cessAmountPerUnitPaise,
+        quantity: item.quantity,
+      });
+      resolvedCgstPaise = gstResult.cgstPaise;
+      resolvedSgstPaise = gstResult.sgstPaise;
+      resolvedIgstPaise = gstResult.igstPaise;
+      resolvedUtgstPaise = gstResult.utgstPaise;
+      itemTotalAmountPaise = lineTaxablePaise + gstResult.totalTaxPaise - totalItemCommercialDiscountPaise;
+    }
+
     sumLineTaxablePaise += lineTaxablePaise;
-
-    // Call Phase 10 calculateLineGst
-    const gstResult = calculateLineGst({
-      taxablePaise: lineTaxablePaise,
-      resolvedTaxRate: item.resolvedTaxRate,
-      supplierStateCode: input.supplierStateCode,
-      placeOfSupplyStateCode: input.placeOfSupplyStateCode,
-      recipientStateCode: input.recipientStateCode,
-      supplyType: item.itemType || input.supplyType,
-      supplyClassification: input.supplyClassification,
-      taxTreatment: item.taxTreatment || input.taxTreatment,
-      customerGstType: input.customerGstType,
-      zeroRatedMethod: input.zeroRatedMethod,
-      taxMechanism: input.taxMechanism,
-      placeOfSupplyDetermination: input.placeOfSupplyDetermination,
-      cessAmountPerUnitPaise: item.cessAmountPerUnitPaise,
-      quantity: item.quantity,
-    });
-
-    const itemTotalAmountPaise = lineTaxablePaise + gstResult.totalTaxPaise - totalItemCommercialDiscountPaise;
 
     calculatedItems.push({
       itemId: item.itemId,
@@ -173,6 +253,13 @@ export function calculateInvoice(input: InvoiceCalculationInput): InvoiceCalcula
       taxablePaise: lineTaxablePaise,
       taxableAmount: paiseToRupees(lineTaxablePaise),
       gstResult,
+      isPriceInclusiveOfGst: isPriceInclusive,
+      enteredRatePaise: item.ratePaise,
+      inclusiveGrossPaise: grossLinePaise,
+      resolvedCgstPaise,
+      resolvedSgstPaise,
+      resolvedIgstPaise,
+      resolvedUtgstPaise,
       totalAmountPaise: itemTotalAmountPaise,
       totalAmount: paiseToRupees(itemTotalAmountPaise),
     });
@@ -246,10 +333,10 @@ export function calculateInvoice(input: InvoiceCalculationInput): InvoiceCalcula
   let totalSpecificCessPaise = 0;
 
   for (const item of calculatedItems) {
-    totalCgstPaise += item.gstResult.cgstPaise;
-    totalSgstPaise += item.gstResult.sgstPaise;
-    totalUtgstPaise += item.gstResult.utgstPaise;
-    totalIgstPaise += item.gstResult.igstPaise;
+    totalCgstPaise += item.resolvedCgstPaise;
+    totalSgstPaise += item.resolvedSgstPaise;
+    totalUtgstPaise += item.resolvedUtgstPaise;
+    totalIgstPaise += item.resolvedIgstPaise;
     totalAdValoremCessPaise += item.gstResult.adValoremCessPaise;
     totalSpecificCessPaise += item.gstResult.specificCessPaise;
   }

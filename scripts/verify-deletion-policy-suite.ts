@@ -405,7 +405,7 @@ export async function runDeletionPolicySuite() {
     console.log('Scenario 7: Testing Product Line Item Snapshot Freeze...');
     const reFetchedIssuedInv = await InvoiceModel.findById(issuedDoc._id).exec();
     const itemSnapshotUnchanged = reFetchedIssuedInv?.items[0].name === 'Original Product Name S4' &&
-                                  reFetchedIssuedInv?.items[0].rate === 5000000; // 50000 in paise
+                                  ((reFetchedIssuedInv?.items[0] as any).enteredRatePaise || (reFetchedIssuedInv?.items[0] as any).rate) === 5000000; // 50000 in paise
 
     if (itemSnapshotUnchanged) {
       suiteResults.push({

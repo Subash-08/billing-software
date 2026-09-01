@@ -181,12 +181,11 @@ export class PaymentService {
               }
 
               // Defensive Money Unit Migration Guard — Upgrade legacy invoice documents (stored in rupees) to paise
+              const firstItem = invoice.items?.[0] as any;
+              const firstItemGross = firstItem ? (firstItem.enteredRatePaise || firstItem.rate || 0) * (firstItem.quantity || 1) : 0;
               const isLegacyRupeesInvoice =
                 invoice.grandTotal < 500000 &&
-                (invoice.outstandingBalance < alloc.allocationAmountPaise ||
-                  (invoice.items &&
-                    invoice.items.length > 0 &&
-                    (invoice.items[0].rate || 0) * (invoice.items[0].quantity || 1) > invoice.grandTotal / 100));
+                (invoice.outstandingBalance < alloc.allocationAmountPaise || firstItemGross > invoice.grandTotal / 100);
 
               if (isLegacyRupeesInvoice) {
                 const grandTotalPaise = Math.round(invoice.grandTotal * 100);

@@ -7,9 +7,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   try {
     const { businessId, user } = await requireAuthenticatedBusiness();
     const { id } = await params;
+    const idempotencyKey = req.headers.get('Idempotency-Key') || undefined;
 
-    const invoice = await invoiceService.issueInvoice(businessId, id, user._id.toString());
-    return NextResponse.json({ success: true, data: invoice });
+    const issued = await invoiceService.issueInvoice(businessId, id, user._id.toString(), idempotencyKey);
+    return NextResponse.json({ success: true, data: issued });
   } catch (error: any) {
     if (error instanceof ApplicationError) {
       return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: error.statusCode });

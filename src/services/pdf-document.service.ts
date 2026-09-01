@@ -15,6 +15,7 @@ import { BusinessModel } from '@/db/models/business.model';
 import { CustomerModel } from '@/db/models/customer.model';
 import { ApplicationError, NotFoundError } from '@/lib/errors';
 import { paiseToRupees } from '@/lib/money';
+import { invoiceTemplateService } from '@/services/invoice-template.service';
 
 // ---------------------------------------------------------------------------
 // Helper: Convert Amount in Rupees to Indian Currency Words
@@ -105,6 +106,7 @@ export interface InvoicePdfViewModel {
   paidAmountRupees: number;
   outstandingBalanceRupees: number;
   amountInWords: string;
+  template?: Record<string, unknown>;
 }
 
 export interface PaymentReceiptPdfViewModel {
@@ -148,6 +150,20 @@ export class PdfDocumentService {
 
     const grandTotalRupees = paiseToRupees(invoice.grandTotal);
 
+    // Resolve template: prefer locked invoice.templateSnapshot, fallback to active default template
+    let templateData: Record<string, unknown> | undefined = (invoice as any).templateSnapshot;
+    if (!templateData) {
+      try {
+        const activeTpl = await invoiceTemplateService.getOrCreateDefaultTemplate(businessId);
+        const biz = await BusinessModel.findById(businessId).lean().exec();
+        const logoUrl = (biz as any)?.branding?.invoiceLogo?.secureUrl || (biz as any)?.branding?.logo?.secureUrl;
+        const sigUrl = (biz as any)?.branding?.signature?.secureUrl;
+        templateData = invoiceTemplateService.buildTemplateSnapshot(activeTpl, logoUrl, sigUrl);
+      } catch {
+        templateData = undefined;
+      }
+    }
+
     const docType = invoice.documentType || 'TAX_INVOICE';
     let docTitle = 'TAX INVOICE';
     if (docType === 'BILL_OF_SUPPLY') docTitle = 'BILL OF SUPPLY';
@@ -185,20 +201,31 @@ export class PdfDocumentService {
         stateCode: invoice.billToSnapshot?.stateCode || '33',
         pincode: invoice.billToSnapshot?.pincode,
       },
-      items: invoice.items.map((it) => ({
-        name: it.name,
-        hsnSacCode: it.hsnSacCode,
-        quantity: it.quantity,
-        unit: it.unit,
-        uqc: it.uqc,
-        rateRupees: paiseToRupees(it.rate),
-        taxableAmountRupees: paiseToRupees(it.taxableAmount),
-        gstRate: it.gstRate,
-        cgstRupees: paiseToRupees(it.cgstAmount),
-        sgstRupees: paiseToRupees(it.sgstAmount),
-        igstRupees: paiseToRupees(it.igstAmount),
-        totalRupees: paiseToRupees(it.totalAmount),
-      })),
+      items: invoice.items.map((it: any) => {
+        const isGoods = (it.itemType || 'GOODS') === 'GOODS';
+        const hsnSac = (isGoods ? it.hsnCode : it.sacCode) || it.hsnSacCode || '998314';
+        const ratePaise = it.enteredRatePaise ?? it.rate ?? 0;
+        const taxablePaise = it.taxableAmountPaise ?? it.taxableAmount ?? 0;
+        const cgstPaise = it.cgstAmountPaise ?? it.cgstAmount ?? 0;
+        const sgstPaise = it.sgstAmountPaise ?? it.sgstAmount ?? 0;
+        const igstPaise = it.igstAmountPaise ?? it.igstAmount ?? 0;
+        const totalPaise = it.totalAmountPaise ?? it.totalAmount ?? 0;
+
+        return {
+          name: it.name,
+          hsnSacCode: hsnSac,
+          quantity: it.quantity,
+          unit: it.unit,
+          uqc: it.uqc,
+          rateRupees: paiseToRupees(ratePaise),
+          taxableAmountRupees: paiseToRupees(taxablePaise),
+          gstRate: it.gstRate,
+          cgstRupees: paiseToRupees(cgstPaise),
+          sgstRupees: paiseToRupees(sgstPaise),
+          igstRupees: paiseToRupees(igstPaise),
+          totalRupees: paiseToRupees(totalPaise),
+        };
+      }),
       subTotalRupees: paiseToRupees(invoice.subTotal),
       totalDiscountRupees: paiseToRupees(invoice.totalDiscount),
       totalTaxableRupees: paiseToRupees(invoice.totalTaxable),
@@ -212,6 +239,7 @@ export class PdfDocumentService {
       paidAmountRupees: paiseToRupees(invoice.paidAmount),
       outstandingBalanceRupees: paiseToRupees(invoice.outstandingBalance),
       amountInWords: numberToIndianWords(grandTotalRupees),
+      template: templateData,
     };
   }
 

@@ -20,14 +20,20 @@ export const createProductSchema = z.object({
     .optional(),
   defaultGstRate: z
     .number({ invalid_type_error: 'GST rate must be a number' })
-    .refine((val) => [0, 5, 12, 18, 28].includes(val), 'Default GST rate must be a standard rate (0%, 5%, 12%, 18%, 28%)')
+    .nonnegative('GST rate cannot be negative')
+    .refine((val) => Number.isFinite(val), 'GST rate must be finite')
     .default(18),
+  defaultTaxRateId: z.string().trim().optional().or(z.literal('')),
+  isPriceInclusiveOfGst: z.boolean().optional().default(false),
   taxTreatment: z
     .enum(['TAXABLE', 'NIL_RATED', 'EXEMPT', 'NON_GST', 'ZERO_RATED'])
     .default('TAXABLE'),
   categoryId: z.string().trim().optional().or(z.literal('')),
   description: z.string().trim().max(1000, 'Description too long').optional(),
+  trackInventory: z.boolean().optional().default(true),
+  reorderLevel: z.number().min(0).optional().default(0),
 });
+
 
 export const updateProductSchema = createProductSchema.partial().extend({
   status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
@@ -39,9 +45,9 @@ export const productQuerySchema = z.object({
   categoryId: z.string().optional(),
   hsnCode: z.string().optional(),
   page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(20),
+  limit: z.coerce.number().min(1).max(1000).default(50),
 });
 
-export type CreateProductInput = z.infer<typeof createProductSchema>;
-export type UpdateProductInput = z.infer<typeof updateProductSchema>;
+export type CreateProductInput = z.input<typeof createProductSchema>;
+export type UpdateProductInput = z.input<typeof updateProductSchema>;
 export type ProductQueryInput = z.infer<typeof productQuerySchema>;

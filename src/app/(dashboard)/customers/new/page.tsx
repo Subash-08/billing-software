@@ -207,16 +207,31 @@ export default function CreateCustomerPage() {
 
               {formData.gstTreatment !== 'UNREGISTERED' && (
                 <div>
-                  <label className="font-medium text-[#374151] block mb-1">GSTIN (15 chars)</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-medium text-[#374151] block">GSTIN (15 chars)</label>
+                    {/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/i.test(formData.gstin.trim()) && (
+                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded">
+                        ✓ Format Valid
+                      </span>
+                    )}
+                  </div>
                   <Input
                     name="gstin"
                     value={formData.gstin}
-                    onChange={handleChange}
+                    onChange={e => {
+                      const val = e.target.value.toUpperCase();
+                      const stateCode = val.length >= 2 ? val.slice(0, 2) : formData.stateCode;
+                      setFormData(prev => ({
+                        ...prev,
+                        gstin: val,
+                        stateCode: /^\d{2}$/.test(stateCode) ? stateCode : prev.stateCode,
+                      }));
+                    }}
                     maxLength={15}
                     placeholder="33AAAAA0000A1Z5"
-                    className="font-mono uppercase text-xs"
+                    className="font-mono uppercase text-xs font-bold"
                   />
-                  <p className="text-[11px] text-[#6B7280] mt-1">First 2 digits must match State Code.</p>
+                  <p className="text-[10px] text-[#6B7280] mt-1">First 2 digits set POS State Code ({formData.stateCode}). Format validated locally.</p>
                 </div>
               )}
 

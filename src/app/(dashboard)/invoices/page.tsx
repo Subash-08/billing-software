@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { RecordPaymentModal } from '@/components/modals/record-payment-modal';
 import { Toast } from '@/components/ui/toast';
+import { paiseToRupees } from '@/lib/money';
 
 interface InvoiceListItem {
   _id: string;
@@ -108,10 +109,14 @@ export default function InvoicesListPage() {
     fetchInvoices();
   };
 
-  // Analytics Aggregation
-  const totalInvoicedRupees = invoices.reduce((sum, inv) => sum + toRupees(inv.grandTotal), 0);
-  const totalCollectedRupees = invoices.reduce((sum, inv) => sum + toRupees(inv.paidAmount), 0);
-  const totalOutstandingRupees = invoices.reduce((sum, inv) => sum + toRupees(inv.outstandingBalance), 0);
+  // Financial Reconciliation: Only ISSUED invoices constitute legal Billed Revenue & Outstanding Receivables.
+  const issuedInvoices = invoices.filter(inv => inv.status === 'ISSUED');
+  const draftInvoices = invoices.filter(inv => inv.status === 'DRAFT' || inv.status === 'VALIDATING' || inv.status === 'READY_TO_ISSUE');
+
+  const totalInvoicedRupees = issuedInvoices.reduce((sum, inv) => sum + paiseToRupees(inv.grandTotal || 0), 0);
+  const totalCollectedRupees = issuedInvoices.reduce((sum, inv) => sum + paiseToRupees(inv.paidAmount || 0), 0);
+  const totalOutstandingRupees = issuedInvoices.reduce((sum, inv) => sum + paiseToRupees(inv.outstandingBalance || 0), 0);
+  const collectionRate = totalInvoicedRupees > 0 ? Math.round((totalCollectedRupees / totalInvoicedRupees) * 100) : 100;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -147,45 +152,47 @@ export default function InvoicesListPage() {
         </Link>
       </div>
 
-      {/* Summary KPI Cards */}
+      {/* Summary KPI Cards — Reconciled with Dashboard & Outstanding Aging */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="border border-slate-200 bg-white p-4 shadow-2xs rounded-xl">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500">Total Invoiced</span>
+            <span className="text-xs font-semibold text-slate-500">Gross Billed Sales</span>
             <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
               <FileText className="h-4 w-4" />
             </div>
           </div>
           <p className="text-lg font-bold text-slate-900 mt-2">
-            ₹{totalInvoicedRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+            ₹{totalInvoicedRupees.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">{invoices.length} total invoices</span>
+          <span className="text-[11px] text-slate-400 mt-0.5 block">
+            {issuedInvoices.length} Issued Invoices {draftInvoices.length > 0 ? `(${draftInvoices.length} Drafts)` : ''}
+          </span>
         </Card>
 
         <Card className="border border-slate-200 bg-white p-4 shadow-2xs rounded-xl">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500">Total Collected</span>
+            <span className="text-xs font-semibold text-slate-500">Total Payments Collected</span>
             <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
               <CheckCircle2 className="h-4 w-4" />
             </div>
           </div>
           <p className="text-lg font-bold text-emerald-700 mt-2">
-            ₹{totalCollectedRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+            ₹{totalCollectedRupees.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
-          <span className="text-[11px] text-emerald-600 font-medium mt-0.5 block">Received in bank / cash</span>
+          <span className="text-[11px] text-emerald-600 font-medium mt-0.5 block">Settled via Receipts</span>
         </Card>
 
         <Card className="border border-slate-200 bg-white p-4 shadow-2xs rounded-xl">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500">Outstanding Due</span>
+            <span className="text-xs font-semibold text-slate-500">Outstanding Balance</span>
             <div className="p-2 bg-amber-50 text-amber-600 rounded-lg">
               <Clock className="h-4 w-4" />
             </div>
           </div>
           <p className="text-lg font-bold text-amber-700 mt-2">
-            ₹{totalOutstandingRupees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+            ₹{totalOutstandingRupees.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
-          <span className="text-[11px] text-amber-600 font-medium mt-0.5 block">Pending payment collection</span>
+          <span className="text-[11px] text-amber-600 font-medium mt-0.5 block">Uncollected Receivables</span>
         </Card>
 
         <Card className="border border-slate-200 bg-white p-4 shadow-2xs rounded-xl">
@@ -196,11 +203,9 @@ export default function InvoicesListPage() {
             </div>
           </div>
           <p className="text-lg font-bold text-purple-700 mt-2">
-            {totalInvoicedRupees > 0
-              ? `${Math.round((totalCollectedRupees / totalInvoicedRupees) * 100)}%`
-              : '100%'}
+            {collectionRate}%
           </p>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">Of total billed revenue</span>
+          <span className="text-[11px] text-slate-400 mt-0.5 block">Of total billed sales</span>
         </Card>
       </div>
 

@@ -14,6 +14,15 @@ import { getFinancialYear } from '@/lib/financial-year';
 import { rupeesToPaise } from '@/lib/money';
 import { ApplicationError, NotFoundError, ConflictError } from '@/lib/errors';
 import { CreateInvoiceSchema, CreateInvoiceInput, CreateInvoiceOutput } from '@/validations/invoice.schema';
+import { HsnSacValidator } from '@/engine/gst/hsn-sac.validator';
+import { HsnReportingPolicyResolver } from '@/engine/policy/hsn-reporting.policy';
+import { GstrClassificationPolicyResolver } from '@/engine/policy/gstr-classification.policy';
+import { buildTransactionContext } from '@/engine/policy/transaction.context';
+import { invoiceNumberService } from '@/services/invoice-number.service';
+import { documentNumberService } from '@/services/document-number.service';
+import { inventoryService } from '@/services/inventory.service';
+import { InvoiceCancellationPolicy } from '@/engine/policy/invoice-cancellation.policy';
+import { invoiceTemplateService } from '@/services/invoice-template.service';
 
 export class InvoiceServiceError extends ApplicationError {
   constructor(message: string, code = 'INVOICE_SERVICE_ERROR', statusCode = 400) {
@@ -108,7 +117,9 @@ export class InvoiceService {
         resolvedRateDoc = await resolveTaxRate(defaultGstRate, invoiceDate);
       }
 
-      const ratePaise = rupeesToPaise(itemInput.rate);
+      const inputRate = itemInput.enteredRate !== undefined ? itemInput.enteredRate : (itemInput.rate ?? 0);
+      const ratePaise = rupeesToPaise(inputRate);
+      const code = (itemInput.itemType === 'SERVICES' ? itemInput.sacCode : itemInput.hsnCode) || (itemInput as any).hsnSacCode || '';
 
       invoiceLineInputs.push({
         itemId: itemInput.itemId,
@@ -116,7 +127,7 @@ export class InvoiceService {
         itemType: itemInput.itemType,
         classificationCode: {
           type: (itemInput.itemType === 'SERVICES' ? 'SAC' : 'HSN') as 'HSN' | 'SAC',
-          code: itemInput.hsnSacCode,
+          code,
         },
         quantity: itemInput.quantity,
         freeQuantity: itemInput.freeQuantity || 0,
@@ -127,6 +138,7 @@ export class InvoiceService {
         taxTreatment: itemInput.taxTreatment,
         resolvedTaxRate: resolvedRateDoc,
         cessAmountPerUnitPaise: itemInput.cessAmountPerUnit ? rupeesToPaise(itemInput.cessAmountPerUnit) : undefined,
+        isPriceInclusiveOfGst: itemInput.isPriceInclusiveOfGst ?? false,
       });
     }
 
@@ -149,7 +161,7 @@ export class InvoiceService {
       }
     }
 
-    // Delegate calculation strictly to Phase 11 Engine
+    // Delegate calculation strictly to Engine
     const calcResult = calculateInvoice({
       supplierStateCode,
       placeOfSupplyStateCode,
@@ -165,31 +177,60 @@ export class InvoiceService {
       roundOffPolicy: payload.roundOffPolicy,
     });
 
-    // Build Item Snapshots in Integer Paise
+    // Build Item Snapshots in Integer Paise (v8 Canonical Schema)
     for (let i = 0; i < calcResult.items.length; i++) {
       const calcItem = calcResult.items[i];
       const origInput = payload.items[i];
-      itemSnapshotsForDb.push({
+      const isGoods = (origInput.itemType || 'GOODS') === 'GOODS';
+
+      const hsnCode = isGoods ? (origInput.hsnCode || calcItem.classificationCode.code) : undefined;
+      const sacCode = !isGoods ? (origInput.sacCode || calcItem.classificationCode.code) : undefined;
+
+      const snapshot: IInvoiceItemSnapshot = {
         itemId: origInput.itemId ? new Types.ObjectId(origInput.itemId) : undefined,
+        itemType: origInput.itemType || 'GOODS',
         name: calcItem.name,
-        hsnSacCode: calcItem.classificationCode.code,
+        description: origInput.description,
+        hsnCode,
+        sacCode,
         quantity: calcItem.quantity,
         freeQuantity: calcItem.freeQuantity,
         unit: calcItem.unit,
         uqc: calcItem.uqc,
-        rate: calcItem.ratePaise,
-        discountAmount: calcItem.taxReducingDiscountPaise + calcItem.commercialDiscountPaise,
-        taxableAmount: calcItem.taxablePaise,
+        enteredRatePaise: calcItem.enteredRatePaise,
+        isPriceInclusiveOfGst: origInput.isPriceInclusiveOfGst ?? false,
+        discountType: origInput.lineDiscount?.type,
+        discountValueRaw: origInput.lineDiscount?.value,
+        discountAmountPaise: calcItem.taxReducingDiscountPaise + calcItem.commercialDiscountPaise,
         taxTreatment: calcItem.gstResult.trace.taxTreatment,
         gstRate: calcItem.gstResult.trace.effectiveRate,
-        cgstAmount: calcItem.gstResult.cgstPaise,
-        sgstAmount: calcItem.gstResult.sgstPaise,
-        utgstAmount: calcItem.gstResult.utgstPaise,
-        igstAmount: calcItem.gstResult.igstPaise,
+        cgstRate: calcItem.gstResult.cgstRate,
+        sgstRate: calcItem.gstResult.sgstRate,
+        igstRate: calcItem.gstResult.igstRate,
+        taxRateId: calcItem.gstResult.trace.taxRateId || '',
+        taxRateVersion: '1.0',
+        taxableAmountPaise: calcItem.taxablePaise,
+        cgstAmountPaise: calcItem.resolvedCgstPaise,
+        sgstAmountPaise: calcItem.resolvedSgstPaise,
+        utgstAmountPaise: calcItem.resolvedUtgstPaise,
+        igstAmountPaise: calcItem.resolvedIgstPaise,
         cessRate: calcItem.gstResult.cessRate,
-        cessAmount: calcItem.gstResult.cessPaise,
-        totalAmount: calcItem.totalAmountPaise,
-      });
+        cessAmountPaise: calcItem.gstResult.cessPaise,
+        totalAmountPaise: calcItem.totalAmountPaise,
+      };
+
+      // ── RUNTIME INVARIANT 1 CHECK ──────────────────────────────────────
+      const componentSum = snapshot.taxableAmountPaise + snapshot.cgstAmountPaise
+                         + snapshot.sgstAmountPaise + snapshot.igstAmountPaise
+                         + snapshot.utgstAmountPaise + snapshot.cessAmountPaise;
+      if (componentSum !== snapshot.totalAmountPaise) {
+        throw new ApplicationError(
+          `Line total invariant violated for item '${snapshot.name}': component sum ${componentSum} ≠ total ${snapshot.totalAmountPaise}`,
+          'INVOICE_INVARIANT_VIOLATION', 500
+        );
+      }
+
+      itemSnapshotsForDb.push(snapshot);
     }
 
     return { calcResult, itemSnapshotsForDb };
@@ -318,6 +359,50 @@ export class InvoiceService {
   }
 
   /**
+   * Updates an existing DRAFT invoice with optimistic concurrency control (revision token).
+   */
+  async updateDraftInvoiceWithRevision(
+    businessId: string,
+    invoiceId: string,
+    payload: CreateInvoiceOutput,
+    expectedRevision: number,
+    userId?: string
+  ): Promise<IInvoice> {
+    await mongoose.connection;
+    const bId = new Types.ObjectId(businessId);
+    const invId = new Types.ObjectId(invoiceId);
+
+    // Atomically find draft matching expectedRevision
+    const draft = await InvoiceModel.findOne({
+      _id: invId,
+      businessId: bId,
+    }).exec();
+
+    if (!draft) throw new InvoiceNotFoundError(invoiceId);
+
+    if (draft.status !== 'DRAFT') {
+      throw new ImmutableInvoiceError(invoiceId);
+    }
+
+    if (draft.revision !== expectedRevision) {
+      throw new ApplicationError(
+        `This draft invoice was updated by another session (current revision ${draft.revision}, expected ${expectedRevision}). Please refresh and try again.`,
+        'INVOICE_REVISION_CONFLICT',
+        409
+      );
+    }
+
+    // Calculate & update with incremented revision
+    const updated = await this.updateDraftInvoice(businessId, invoiceId, payload);
+    await InvoiceModel.updateOne(
+      { _id: invId, businessId: bId },
+      { $inc: { revision: 1 } }
+    ).exec();
+
+    return updated;
+  }
+
+  /**
    * Atomically issues a DRAFT invoice:
    * 1. Claims DRAFT -> VALIDATING state
    * 2. Resolves server-side financialYear & generates sequential invoiceNumber
@@ -325,18 +410,52 @@ export class InvoiceService {
    * 4. Updates status to ISSUED
    * 5. Writes INVOICE_ISSUED audit trail
    */
-  async issueInvoice(businessId: string, invoiceId: string, userId?: string): Promise<IInvoice> {
+  async issueInvoice(
+    businessId: string,
+    invoiceId: string,
+    userId?: string,
+    idempotencyKey?: string
+  ): Promise<IInvoice> {
     const existing = await invoiceRepository.findById(businessId, invoiceId);
     if (!existing) throw new InvoiceNotFoundError(invoiceId);
 
+    // Idempotency check: if already issued with the same idempotency key, return existing
     if (existing.status === 'ISSUED') {
+      if (idempotencyKey && existing.issuanceIdempotencyKey === idempotencyKey) {
+        return existing;
+      }
       throw new InvoiceAlreadyIssuedError(invoiceId);
     }
+
     if (existing.status === 'VALIDATING') {
       throw new InvoiceIssuanceInProgressError(invoiceId);
     }
     if (existing.status !== 'DRAFT') {
       throw new IllegalStateTransitionError(existing.status, 'ISSUED');
+    }
+
+    // ── ISSUANCE GATE VALIDATION ─────────────────────────────────────────
+    if (!existing.supplyDetails?.placeOfSupplyStateCode) {
+      throw new ApplicationError('Place of Supply state code is required before issuing an invoice.', 'POS_REQUIRED', 400);
+    }
+
+    // Validate HSN / SAC structural validity & type consistency
+    const bId = new Types.ObjectId(businessId);
+    const business = await BusinessModel.findById(bId).lean().exec();
+    if (!business) throw new ApplicationError('Business not found', 'BUSINESS_NOT_FOUND', 404);
+
+    const txContext = buildTransactionContext(existing, business as any);
+    const hsnPolicy = HsnReportingPolicyResolver.resolve(txContext);
+    const gstrPolicy = GstrClassificationPolicyResolver.resolve(txContext);
+
+    for (const item of existing.items) {
+      const itemType = (item.itemType || 'GOODS') as 'GOODS' | 'SERVICES';
+      const code = (itemType === 'GOODS' ? item.hsnCode : item.sacCode) || (item as any).hsnSacCode;
+
+      const structVal = HsnSacValidator.validateStructure(code, itemType, hsnPolicy.requiredDigits);
+      if (!structVal.valid) {
+        throw new ApplicationError(structVal.errorMessages.join(' '), 'HSN_SAC_VALIDATION_FAILED', 400);
+      }
     }
 
     // 1. Atomic State Claim (DRAFT -> VALIDATING)
@@ -345,39 +464,89 @@ export class InvoiceService {
       throw new InvoiceIssuanceInProgressError(invoiceId);
     }
 
+    const session = await mongoose.startSession();
     try {
-      // 2. Derive Financial Year & Generate Sequential Number
-      const financialYear = getFinancialYear(existing.invoiceDate);
-      const prefix = existing.documentType === 'TAX_INVOICE' ? 'INV' : existing.documentType.slice(0, 3);
-      const { formattedInvoiceNumber } = await invoiceRepository.getNextSequenceNumber(
-        businessId,
-        existing.documentType,
-        financialYear,
-        prefix
-      );
+      let issuedDoc: any = null;
+      await session.withTransaction(async () => {
+        // 2. Reserve Next Sequential Number within transaction session
+        const reserved = await documentNumberService.reserveNextNumber(
+          businessId,
+          existing.documentType as any,
+          existing.invoiceDate,
+          session
+        );
 
-      // 3. Mark ISSUED and Lock Snapshots
-      const issued = await invoiceRepository.update(businessId, invoiceId, {
-        invoiceNumber: formattedInvoiceNumber,
-        financialYear,
-        status: 'ISSUED',
+        // Stamp policy versions and compliance trace into calculationTrace
+        const calculationTrace = {
+          ...(existing.calculationTrace || {}),
+          hsnPolicyVersion: hsnPolicy.policyVersion,
+          gstrClassificationPolicyVersion: gstrPolicy.policyVersion,
+          documentCompliancePolicyVersion: 'DOC-POLICY-1.0',
+          complianceEvaluatedAt: new Date().toISOString(),
+          complianceTrace: {
+            hsnReporting: hsnPolicy,
+            gstrClassification: gstrPolicy,
+          },
+        };
+
+        // 3. Mark ISSUED and Lock Snapshots
+        // Capture the active template snapshot for historical immutability
+        let templateSnapshot: Record<string, unknown> | undefined;
+        try {
+          const activeTemplate = await invoiceTemplateService.getOrCreateDefaultTemplate(businessId);
+          const logoUrl = business.branding?.invoiceLogo?.secureUrl || business.branding?.logo?.secureUrl;
+          const signatureUrl = business.branding?.signature?.secureUrl;
+          templateSnapshot = invoiceTemplateService.buildTemplateSnapshot(activeTemplate, logoUrl, signatureUrl);
+        } catch {
+          // Template snapshot failure must NOT block invoice issuance
+          templateSnapshot = undefined;
+        }
+
+        issuedDoc = await InvoiceModel.findOneAndUpdate(
+          { _id: new Types.ObjectId(invoiceId), businessId: bId },
+          {
+            $set: {
+              invoiceNumber: reserved.formattedNumber,
+              financialYear: reserved.financialYear,
+              status: 'ISSUED',
+              issuedAt: new Date(),
+              issuedBy: userId ? new Types.ObjectId(userId) : undefined,
+              issuanceIdempotencyKey: idempotencyKey,
+              calculationTrace,
+              ...(templateSnapshot ? { templateSnapshot } : {}),
+            },
+          },
+          { new: true, session }
+        ).exec();
+
+        // 4. Deduct Stock for Goods (Products) inside issuance transaction session
+        if (issuedDoc) {
+          await inventoryService.deductStockForInvoice(businessId, issuedDoc, session);
+        }
       });
 
       // 4. Audit Trail Event
       await AuditLogModel.create({
-        businessId: new Types.ObjectId(businessId),
+        businessId: bId,
         userId: userId ? new Types.ObjectId(userId) : undefined,
         action: 'INVOICE_ISSUED',
         resource: 'Invoice',
         resourceId: invoiceId,
-        metadata: { invoiceNumber: formattedInvoiceNumber, financialYear, grandTotal: issued?.grandTotal },
+        metadata: {
+          invoiceNumber: issuedDoc?.invoiceNumber,
+          financialYear: issuedDoc?.financialYear,
+          grandTotal: issuedDoc?.grandTotal,
+          idempotencyKey,
+        },
       });
 
-      return issued!;
+      return issuedDoc!;
     } catch (err) {
       // Roll back state VALIDATING -> DRAFT on error
       await invoiceRepository.rollbackIssuanceState(businessId, invoiceId);
       throw err;
+    } finally {
+      await session.endSession();
     }
   }
 
@@ -480,6 +649,93 @@ export class InvoiceService {
   async listInvoices(businessId: string, filters: InvoiceListFilters = {}) {
     return invoiceRepository.list(businessId, filters);
   }
+
+  /**
+   * Recalculates and persists outstandingBalance + paymentStatus for an invoice.
+   *
+   * Formula (all values in integer paise):
+   *   outstandingBalance =
+   *     invoice.grandTotal
+   *     - SUM(active PaymentAllocations for this invoice)
+   *     - SUM(issued Credit Notes against this invoice)
+   *
+   * MUST be called after:
+   *   - Payment recorded / reversed against this invoice
+   *   - Credit note issued / cancelled against this invoice
+   *
+   * outstanding is NEVER manually set. Always re-derived from source transactions.
+   *
+   * @param businessId - Required for tenant isolation (never skip)
+   * @param invoiceId  - Target invoice
+   * @param session    - Active MongoDB session for transactional consistency
+   */
+  async recalculateOutstandingBalance(
+    businessId: string,
+    invoiceId: string,
+    session?: mongoose.ClientSession
+  ): Promise<void> {
+    const bId = new Types.ObjectId(businessId);
+    const invId = new Types.ObjectId(invoiceId);
+
+    const invoice = await InvoiceModel.findOne({ _id: invId, businessId: bId })
+      .session(session ?? null)
+      .lean()
+      .exec();
+
+    if (!invoice) throw new InvoiceNotFoundError(invoiceId);
+    if (invoice.status === 'CANCELLED') return; // cancelled invoices do not update
+
+    // 1. Sum all active payment allocations for this invoice
+    const { PaymentAllocationModel } = await import('@/db/models/payment-allocation.model');
+    const allocationAgg = await PaymentAllocationModel.aggregate([
+      {
+        $match: {
+          invoiceId: invId,
+          businessId: bId,
+          status: { $in: ['ACTIVE', 'PARTIALLY_REVERSED'] },
+        },
+      },
+      { $group: { _id: null, total: { $sum: '$allocatedAmountPaise' } } },
+    ]).session(session ?? null).exec();
+    const allocatedPaise: number = allocationAgg[0]?.total ?? 0;
+
+    // 2. Sum all issued credit notes that reference this invoice
+    const { CreditNoteModel } = await import('@/db/models/credit-note.model');
+    const creditAgg = await CreditNoteModel.aggregate([
+      {
+        $match: {
+          originalInvoiceId: invId,
+          businessId: bId,
+          status: 'ISSUED',
+        },
+      },
+      { $group: { _id: null, total: { $sum: '$grandTotal' } } },
+    ]).session(session ?? null).exec();
+    const creditNotesPaise: number = creditAgg[0]?.total ?? 0;
+
+    // 3. Derived outstanding — floor at 0
+    const outstandingBalance = Math.max(
+      0,
+      invoice.grandTotal - allocatedPaise - creditNotesPaise
+    );
+
+    // 4. Derive payment status from outstanding
+    let paymentStatus: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID';
+    if (outstandingBalance <= 0) {
+      paymentStatus = 'PAID';
+    } else if (allocatedPaise > 0 || creditNotesPaise > 0) {
+      paymentStatus = 'PARTIALLY_PAID';
+    } else {
+      paymentStatus = 'UNPAID';
+    }
+
+    await InvoiceModel.updateOne(
+      { _id: invId, businessId: bId },
+      { $set: { outstandingBalance, paymentStatus, paidAmount: allocatedPaise } },
+      { session: session ?? undefined }
+    ).exec();
+  }
 }
 
 export const invoiceService = new InvoiceService();
+

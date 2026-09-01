@@ -31,7 +31,7 @@ async function runMigration() {
   for (const inv of invoices) {
     // If grandTotal < 500,000 and items indicate rupees:
     if (inv.grandTotal < 500000 && inv.items && inv.items.length > 0) {
-      const firstItemGross = (inv.items[0].rate || 0) * (inv.items[0].quantity || 1);
+      const firstItemGross = (((inv.items[0] as any).enteredRatePaise || (inv.items[0] as any).rate || 0) / 100) * (inv.items[0].quantity || 1);
       if (firstItemGross > 0 && inv.grandTotal <= firstItemGross * 2) {
         const grandTotalPaise = Math.round(inv.grandTotal * 100);
         const paidAmountPaise = Math.round((inv.paidAmount || 0) * 100);

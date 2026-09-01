@@ -8,8 +8,11 @@ export interface IServiceItem extends Document {
   code?: string;
   sacCode: string;
   billingUnit: string;
+  uqc: string;
   rate: number;
   defaultGstRate: number;
+  defaultTaxRateId?: Types.ObjectId;
+  isPriceInclusiveOfGst: boolean;
   taxTreatment: TaxTreatmentType;
   categoryId?: Types.ObjectId;
   description?: string;
@@ -51,6 +54,11 @@ const ServiceSchema = new Schema<IServiceItem>(
       required: true,
       default: 'Job',
     },
+    uqc: {
+      type: String,
+      required: true,
+      default: 'JOB',
+    },
     rate: {
       type: Number,
       required: true,
@@ -60,6 +68,14 @@ const ServiceSchema = new Schema<IServiceItem>(
       type: Number,
       required: true,
       default: 18,
+    },
+    defaultTaxRateId: {
+      type: Schema.Types.ObjectId,
+      ref: 'TaxRate',
+    },
+    isPriceInclusiveOfGst: {
+      type: Boolean,
+      default: false,
     },
     taxTreatment: {
       type: String,
